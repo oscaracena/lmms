@@ -40,6 +40,7 @@ SET(LMMS_PLUGIN_LIST
 	HydrogenImport
 	ladspa_browser
 	LadspaEffect
+    looper
 	Lv2Effect
 	Lv2Instrument
 	lb302
