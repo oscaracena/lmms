@@ -36,8 +36,9 @@ Plugin::Descriptor PLUGIN_EXPORT looper_plugin_descriptor =
 {
     STRINGIFY(PLUGIN_NAME),
     "Looper Tool",
-    QT_TRANSLATE_NOOP("pluginBrowser",
-                        "Tool to help with live looping"),
+    QT_TRANSLATE_NOOP(
+        "pluginBrowser",
+        "Tool to help with live looping"),
     "Oscar Acena <oscaracena/at/gmail/dot/com>",
     0x0100,
     Plugin::Tool,
@@ -64,4 +65,10 @@ LooperTool::LooperTool() :
 QString LooperTool::nodeName() const
 {
 	return looper_plugin_descriptor.name;
+}
+
+
+LooperView::LooperView(ToolPlugin * _tool) :
+	ToolPluginView(_tool)
+{
 }

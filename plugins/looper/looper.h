@@ -23,10 +23,31 @@
  */
 
 
+// Expected features (v0.1):
+// * set MIDI input to only current selected track
+// * use MIDI Program Change (PC) messages to select track on piano-roll
+// * use MIDI Control Cahnge (CC) messages to:
+//    - up/down track on piano-roll
+//    - start/stop play and record
+// * control launch-Q (determine when a track will start playing/recording)
+// * support custom MIDI mappings for above controls
+// * save/load profiles
+
+
 #ifndef LOOPER_TOOL_H
 #define LOOPER_TOOL_H
 
+#include <QObject>
+
 #include "ToolPlugin.h"
+#include "ToolPluginView.h"
+
+
+class LooperView : public ToolPluginView
+{
+public:
+	LooperView(ToolPlugin * _tool);
+};
 
 
 class LooperTool : public ToolPlugin
@@ -36,7 +57,7 @@ public:
 
     virtual PluginView * instantiateView(QWidget *)
 	{
-		return nullptr; // return new ladspaBrowserView( this );
+		return new LooperView(this);
 	}
 
 	virtual QString nodeName() const;
