@@ -22,38 +22,55 @@
  *
  */
 
+/*
+  Expected features (v0.1):
+    * set and control loop duration
+    * set MIDI input to only current selected track
+    * use MIDI Program Change (PC) messages to select track on piano-roll
+    * use MIDI Control Cahnge (CC) messages to:
+        - up/down track on piano-roll
+        - start/stop play and record
+    * control launch-Q (determine when a track will start playing/recording)
+    * support custom MIDI mappings for above controls
+    * save/load profiles
+*/
+
 
 #include "looper.h"
 
+#include <iostream>
+
+#include <QMdiSubWindow>
+#include <QVBoxLayout>
+
 #include "embed.h"
+#include "Engine.h"
 #include "plugin_export.h"
+#include "Song.h"
 
 
 extern "C"
 {
+    Plugin::Descriptor PLUGIN_EXPORT looper_plugin_descriptor =
+    {
+        STRINGIFY(PLUGIN_NAME),
+        "Looper Tool",
+        QT_TRANSLATE_NOOP(
+            "pluginBrowser",
+            "Tool to help with live looping"),
+        "Oscar Acena <oscaracena/at/gmail/dot/com>",
+        0x0100,
+        Plugin::Tool,
+            new PluginPixmapLoader("logo"),
+            nullptr,
+            nullptr
+    };
 
-Plugin::Descriptor PLUGIN_EXPORT looper_plugin_descriptor =
-{
-    STRINGIFY(PLUGIN_NAME),
-    "Looper Tool",
-    QT_TRANSLATE_NOOP(
-        "pluginBrowser",
-        "Tool to help with live looping"),
-    "Oscar Acena <oscaracena/at/gmail/dot/com>",
-    0x0100,
-    Plugin::Tool,
-        new PluginPixmapLoader("logo"),
-        nullptr,
-        nullptr
-};
-
-
-PLUGIN_EXPORT Plugin * lmms_plugin_main(Model * _parent, void * _data)
-{
-    return new LooperTool;
+    PLUGIN_EXPORT Plugin * lmms_plugin_main(Model *parent, void *data)
+    {
+        return new LooperTool;
+    }
 }
-
-} // end of extern "C"
 
 
 LooperTool::LooperTool() :
@@ -68,7 +85,40 @@ QString LooperTool::nodeName() const
 }
 
 
-LooperView::LooperView(ToolPlugin * _tool) :
-	ToolPluginView(_tool)
+LooperView::LooperView(ToolPlugin *tool) :
+	ToolPluginView(tool)
 {
+    // Widget is initially hidden
+    auto parent = parentWidget();
+    // parent->hide();
+
+    // Set some size related properties
+    parent->resize(350, 300);
+    parent->setMinimumWidth(350);
+	parent->setMinimumHeight(300);
+
+    // Remove maximize button
+    Qt::WindowFlags flags = parent->windowFlags();
+	flags &= ~Qt::WindowMaximizeButtonHint;
+	parent->setWindowFlags(flags);
+
+    // Add a GroupBox to enable/disable this component
+    QVBoxLayout *mainLayout = new QVBoxLayout(this);
+	m_groupBox = new GroupBox(tr("Loop Controller:"));
+    mainLayout->addWidget(m_groupBox);
+
+    QVBoxLayout *gBoxLayout = new QVBoxLayout();
+	gBoxLayout->setContentsMargins(5, 16, 5, 5);
+	m_groupBox->setLayout(gBoxLayout);
+
+    // TESTING
+	QPushButton* btn = new QPushButton;
+	btn->setText(tr("test"));
+	gBoxLayout->addWidget(btn);
+
+	connect(btn, SIGNAL(clicked()), this, SLOT(onTestClicked()));
+}
+
+void LooperView::onTestClicked() {
+    std::cout << "clicked\n";
 }
