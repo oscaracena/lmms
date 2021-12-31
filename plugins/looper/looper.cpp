@@ -24,7 +24,8 @@
 
 /*
   Expected features (v0.1):
-    * set and control loop duration
+    * [doable] set and control loop duration
+    * add an empty TCO on start of each track (if not exist)
     * set MIDI input to only current selected track
     * use MIDI Program Change (PC) messages to select track on piano-roll
     * use MIDI Control Cahnge (CC) messages to:
@@ -47,6 +48,7 @@
 #include "Engine.h"
 #include "plugin_export.h"
 #include "Song.h"
+#include "TimeLineWidget.h"
 
 
 extern "C"
@@ -90,7 +92,7 @@ LooperView::LooperView(ToolPlugin *tool) :
 {
     // Widget is initially hidden
     auto parent = parentWidget();
-    // parent->hide();
+    // parent->hide(); // FIXME: remove on production
 
     // Set some size related properties
     parent->resize(350, 300);
@@ -111,14 +113,31 @@ LooperView::LooperView(ToolPlugin *tool) :
 	gBoxLayout->setContentsMargins(5, 16, 5, 5);
 	m_groupBox->setLayout(gBoxLayout);
 
-    // TESTING
+    // FIXME: just for TESTING
 	QPushButton* btn = new QPushButton;
 	btn->setText(tr("test"));
 	gBoxLayout->addWidget(btn);
-
 	connect(btn, SIGNAL(clicked()), this, SLOT(onTestClicked()));
 }
 
 void LooperView::onTestClicked() {
-    std::cout << "clicked\n";
+
+    // --- [OK] activate loop points ----------------------------------------------
+    // auto song = Engine::getSong();
+    // auto timeline = song->getPlayPos(song->Mode_PlaySong).m_timeLine;    
+    // QDomDocument doc;
+    // auto config = doc.createElement("config");       
+    // FIXME: get a copy of current settings, and modify only the needed ones
+    // config.setAttribute("lp0pos", 0);
+	// config.setAttribute("lp1pos", 4 * DefaultTicksPerBar);
+	// config.setAttribute("lpstate", TimeLineWidget::LoopPointsEnabled);
+    // config.setAttribute("stopbehaviour", timeline->behaviourAtStop());
+    // timeline->loadSettings(config);  
+
+    // --- [WIP] set MIDI input to only current selected track  -------------------
+    auto song = Engine::getSong();
+    for(auto t: song->tracks()) {
+        std::cout << t->numOfTCOs() << std::endl;
+    }
+
 }
