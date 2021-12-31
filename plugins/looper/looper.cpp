@@ -46,6 +46,7 @@
 
 #include "embed.h"
 #include "Engine.h"
+#include "InstrumentTrack.h"
 #include "plugin_export.h"
 #include "Song.h"
 #include "TimeLineWidget.h"
@@ -124,20 +125,89 @@ void LooperView::onTestClicked() {
 
     // --- [OK] activate loop points ----------------------------------------------
     // auto song = Engine::getSong();
-    // auto timeline = song->getPlayPos(song->Mode_PlaySong).m_timeLine;    
+    // auto timeline = song->getPlayPos(song->Mode_PlaySong).m_timeLine;
     // QDomDocument doc;
-    // auto config = doc.createElement("config");       
+    // auto config = doc.createElement("config");
     // FIXME: get a copy of current settings, and modify only the needed ones
     // config.setAttribute("lp0pos", 0);
 	// config.setAttribute("lp1pos", 4 * DefaultTicksPerBar);
 	// config.setAttribute("lpstate", TimeLineWidget::LoopPointsEnabled);
     // config.setAttribute("stopbehaviour", timeline->behaviourAtStop());
-    // timeline->loadSettings(config);  
+    // timeline->loadSettings(config);
 
     // --- [WIP] set MIDI input to only current selected track  -------------------
+    auto midi_in = "0:1 System:Announce";
+    auto track_idx = 1;
+    auto tracks = Engine::getSong()->tracks();
+    for (int idx = 0; idx < tracks.size(); ++idx) {
+        std::cout << "track id: " << idx << std::endl;
+
+        // handle only instrument tracks
+        auto t = tracks.at(idx);
+        if (t->type() != Track::InstrumentTrack) {
+            continue;
+        }
+
+        auto track = static_cast<InstrumentTrack *>(t);
+        auto port = track->midiPort();
+        auto inputs = port->readablePorts();
+
+        // if track is not selected one, disconnect all midi inputs
+        if (idx != track_idx) {
+
+            auto in = inputs.constBegin();
+            while (in != inputs.constEnd()) {
+                if (in.value()) {
+                    port->subscribeReadablePort(in.key(), false);
+                    emit port->readablePortsChanged();
+                }
+                ++in;
+            }
+        }
+
+        // otherwise, connect only selected input
+        else {
+            auto in = inputs.constBegin();
+            while (in != inputs.constEnd()) {
+                if (in.key() == midi_in) {
+                    if (!in.value()) {
+                        port->subscribeReadablePort(in.key(), true);
+                        emit port->readablePortsChanged();
+                    }
+                }
+                else {
+                    if (in.value()) {
+                        port->subscribeReadablePort(in.key(), false);
+                        emit port->readablePortsChanged();
+                    }
+                }
+                ++in;
+            }
+        }
+    }
+
     auto song = Engine::getSong();
-    for(auto t: song->tracks()) {
-        std::cout << t->numOfTCOs() << std::endl;
+    for (auto t: song->tracks()) {
+        if (t->type() == Track::InstrumentTrack) {
+            auto it = static_cast<InstrumentTrack *>(t);
+            std::cout << "- instrument name: " <<
+                it->instrumentName().toStdString() << std::endl;
+
+            auto port = it->midiPort();
+            std::cout << "- port name: " <<
+                port->displayName().toStdString() << std::endl;
+            std::cout << "- port mode: " << port->mode() << std::endl;
+            std::cout << "- port node name: " <<
+                port->nodeName().toStdString() << std::endl;
+
+            auto inputs = port->readablePorts();
+            auto j = inputs.constBegin();
+            while (j != inputs.constEnd()) {
+                std::cout << j.key().toStdString() <<
+                    " --> " << (j.value() ? "connected" : "disconnected") << std::endl;
+                j++;
+            }
+        }
     }
 
 }
