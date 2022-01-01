@@ -45,15 +45,17 @@
 #include <QMdiSubWindow>
 #include <QVBoxLayout>
 
+#include "ConfigManager.h"
 #include "embed.h"
+#include "MidiClient.h"
 #include "Engine.h"
 #include "GuiApplication.h"
 #include "InstrumentTrack.h"
-#include "MidiPort.h"
 #include "PianoRoll.h"
 #include "plugin_export.h"
 #include "Song.h"
 #include "TimeLineWidget.h"
+#include "ToolButton.h"
 #include "TrackContentObject.h"
 
 
@@ -94,7 +96,8 @@ QString LooperTool::nodeName() const
 
 
 LooperView::LooperView(ToolPlugin *tool) :
-	ToolPluginView(tool)
+	ToolPluginView(tool),
+    m_enabled(false, nullptr, tr("Enable/Disable Looper Tool"))
 {
     // Widget is initially hidden
     auto parent = parentWidget();
@@ -119,41 +122,74 @@ LooperView::LooperView(ToolPlugin *tool) :
 	gBoxLayout->setContentsMargins(3, 15, 3, 3);
 	m_groupBox->setLayout(gBoxLayout);
 
-    // initialize model for enable/disable LED
-    m_enabled = std::make_unique<BoolModel>(
-        false, nullptr, tr("Enable/Disable Looper Tool"));
-    connect(m_enabled.get(), SIGNAL(dataChanged()),
-		this, SLOT(onEnableChanged()));    
-    m_groupBox->setModel(m_enabled.get());
+    // when using with non-raw-clients, show list of input MIDI ports
+    // FIXME: add support for raw-clients
+	ToolButton *midiInputsBtn = new ToolButton(m_groupBox);
+	midiInputsBtn->setIcon(embed::getIconPixmap("piano"));
+    midiInputsBtn->setText(tr("MIDI-devices to receive events from"));
+    midiInputsBtn->setGeometry(15, 24, 32, 32);
+    midiInputsBtn->setPopupMode(QToolButton::InstantPopup);
 
-    // FIXME: just for TESTING
-	// QPushButton* btn = new QPushButton;
-	// btn->setText(tr("test"));
-	// gBoxLayout->addWidget(btn);
-	// connect(btn, SIGNAL(clicked()), this, SLOT(onTestClicked()));
+	if (!Engine::audioEngine()->midiClient()->isRaw())
+	{
+		m_readablePorts = new MidiPortMenu(MidiPort::Input);
+		midiInputsBtn->setMenu(m_readablePorts);
+	}
+    else
+    {
+        qWarning("Looper: sorry, no support for raw clients!");
+    }
+
+    // initialize model for enable/disable LED
+    connect(&m_enabled, SIGNAL(dataChanged()),
+		this, SLOT(onEnableChanged()));
+    m_groupBox->setModel(&m_enabled);
 }
 
+
+LooperView::~LooperView()
+{
+    if (m_lcontrol) { ::delete m_lcontrol; }
+    if (m_readablePorts) { ::delete m_readablePorts; }
+}
+
+
 void LooperView::onEnableChanged() {
-    std::cout << "enable changed";
+    if (m_enabled.value())
+    {
+        if (!m_lcontrol)
+        {
+            m_lcontrol = ::new LooperCtrl();
+        }
+        m_lcontrol->m_midiPort.setMode(MidiPort::Input);
+        if (m_readablePorts)
+        {
+            m_readablePorts->setModel(&(m_lcontrol->m_midiPort));
+        }
+    }
+    else
+    {
+        m_lcontrol->m_midiPort.setMode(MidiPort::Disabled);
+    }
 }
 
     // [OK] use MIDI Program Change (PC) messages to select track on piano-roll
     // class EventProcessor: public MidiEventProcessor {
     // public:
-	//     virtual void processInEvent(const MidiEvent &ev, const TimePos &time, f_cnt_t offset=0) override 
+	//     virtual void processInEvent(const MidiEvent &ev, const TimePos &time, f_cnt_t offset=0) override
     //     {
-    //         if (ev.type() == MidiProgramChange) 
+    //         if (ev.type() == MidiProgramChange)
     //         {
-    //             std::cout << "Program Change - channel: " << int(ev.channel() + 1) 
-    //                       << ", key: " << int(ev.key() + 1) << std::endl; 
+    //             std::cout << "Program Change - channel: " << int(ev.channel() + 1)
+    //                       << ", key: " << int(ev.key() + 1) << std::endl;
     //         }
-    //         else 
+    //         else
     //         {
     //             std::cout << "midi event (not handled)" << std::endl;
-    //         }		
+    //         }
     //     }
     // 	virtual void processOutEvent( const MidiEvent &ev, const TimePos &time, f_cnt_t offset=0) override
-	//     {	
+	//     {
     // 	}
     // };
     // // IMPORTANT! disconnect this port when looper is disabled (it will be system wide visible)
@@ -163,7 +199,7 @@ void LooperView::onEnableChanged() {
     // auto midiPort = new MidiPort(
     //     tr("looper-controller"), Engine::audioEngine()->midiClient(), ep, nullptr, MidiPort::Input);
     // midiPort->setName(QString("Looper Tool"));
-    // auto inputs = midiPort->readablePorts();    
+    // auto inputs = midiPort->readablePorts();
 	// for (auto it = inputs.constBegin(); it != inputs.constEnd(); ++it)
 	// {
 	// 	midiPort->subscribeReadablePort(it.key(), true);
@@ -171,15 +207,15 @@ void LooperView::onEnableChanged() {
 
 
     // [OK] open first TCO of choosen track on piano-roll (show piano-roll if hidden)
-    // auto track_idx = 1;
-    // auto track = Engine::getSong()->tracks().at(track_idx);
+    // auto trackId = 1;
+    // auto track = Engine::getSong()->tracks().at(trackId);
     // if (!track || track->type() != Track::InstrumentTrack) {
     //     qWarning("Warning: invalid selected track");
 	// 	return;
     // }
     // // FIXME: get TCO at pos 0 (not first TCO)
     // auto pattern = dynamic_cast<Pattern*>(track->getTCO(0));
-    // getGUI()->pianoRoll()->setCurrentPattern(pattern);    
+    // getGUI()->pianoRoll()->setCurrentPattern(pattern);
 	// getGUI()->pianoRoll()->parentWidget()->show();
 	// getGUI()->pianoRoll()->show();
 	// getGUI()->pianoRoll()->setFocus();
@@ -220,9 +256,53 @@ void LooperView::onEnableChanged() {
     // timeline->loadSettings(config);
 
 
-    // --- [OK] set MIDI input to only current selected track  -------------------
+
+
+
+LooperCtrl::LooperCtrl() :
+    m_midiPort(QString("looper-controller"), Engine::audioEngine()->midiClient(),
+        this, nullptr, MidiPort::Input)
+{
+    qInfo("Looper: controller created");
+    m_midiPort.setName(QString("Looper Tool"));
+
+    // get system wide MIDI selected device (if any) and connect it
+    // FIXME: add support for raw-client
+    auto client = Engine::audioEngine()->midiClient();
+    if (!client->isRaw())
+    {
+	    const QString &device = ConfigManager::inst()->value(
+            "midi", "midiautoassign");
+	    if (client->readablePorts().indexOf(device) >= 0)
+	    {
+		    m_midiPort.subscribeReadablePort(device, true);
+	    }
+    }
+}
+
+
+LooperCtrl::~LooperCtrl()
+{
+    qInfo("Looper: controller destroyed");
+}
+
+
+void LooperCtrl::processInEvent(
+    const MidiEvent &ev, const TimePos &time, f_cnt_t offset)
+{
+    if (ev.type() == MidiProgramChange)
+    {
+        std::cout << "Program Change - channel: " << int(ev.channel() + 1)
+                  << ", key: " << int(ev.key() + 1) << std::endl;
+        setMidiOnTrack(ev.key());
+    }
+}
+
+void LooperCtrl::setMidiOnTrack(int trackId)
+{
+
+    // set MIDI input to only current selected track  -------------------
     // auto midi_in = "0:1 System:Announce";
-    // auto track_idx = 1;
     // auto tracks = Engine::getSong()->tracks();
     // for (int idx = 0; idx < tracks.size(); ++idx) {
     //     std::cout << "track id: " << idx << std::endl;
@@ -235,7 +315,7 @@ void LooperView::onEnableChanged() {
     //     auto port = track->midiPort();
     //     auto inputs = port->readablePorts();
     //     // if track is not selected one, disconnect all midi inputs
-    //     if (idx != track_idx) {
+    //     if (idx != trackId) {
     //         auto in = inputs.constBegin();
     //         while (in != inputs.constEnd()) {
     //             if (in.value()) {
@@ -265,15 +345,4 @@ void LooperView::onEnableChanged() {
     //         }
     //     }
     // }
-
-
-LooperCtrl::LooperCtrl() 
-{
-    std::cout << "Looper created\n";
-}
-
-
-LooperCtrl::~LooperCtrl() 
-{
-    std::cout << "Looper destroyed\n";
 }
