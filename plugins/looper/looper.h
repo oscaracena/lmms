@@ -26,17 +26,41 @@
 #ifndef LOOPER_TOOL_H
 #define LOOPER_TOOL_H
 
+#include <memory>
+
 #include <QObject>
 
 #include "GroupBox.h"
+#include "MidiEventProcessor.h"
+#include "MidiPort.h"
+#include "MidiPortMenu.h"
 #include "ToolPlugin.h"
 #include "ToolPluginView.h"
 
 
-class LooperCtrl {
+class LooperCtrl : public QObject, public MidiEventProcessor
+{
+	Q_OBJECT
 public:
 	LooperCtrl();
 	~LooperCtrl();
+
+	virtual void processInEvent(
+		const MidiEvent &ev,
+		const TimePos &time,
+		f_cnt_t offset=0) override;
+
+	virtual void processOutEvent(
+		const MidiEvent &ev,
+		const TimePos &time,
+		f_cnt_t offset=0) override {};
+
+private:
+	friend class LooperView;
+
+	void setMidiOnTrack(int trackId);
+
+	MidiPort m_midiPort;
 };
 
 
@@ -45,6 +69,7 @@ class LooperView : public ToolPluginView
   	Q_OBJECT
 public:
 	LooperView(ToolPlugin *tool);
+	~LooperView();
 
 private slots:
 	void onEnableChanged();
@@ -53,7 +78,8 @@ private:
     GroupBox *m_groupBox;
 
 	LooperCtrl *m_lcontrol = nullptr;
-	std::unique_ptr<BoolModel> m_enabled;
+	MidiPortMenu *m_readablePorts = nullptr;
+	BoolModel m_enabled;
 };
 
 
