@@ -33,6 +33,13 @@
 #include "ToolPluginView.h"
 
 
+class LooperCtrl {
+public:
+	LooperCtrl();
+	~LooperCtrl();
+};
+
+
 class LooperView : public ToolPluginView
 {
   	Q_OBJECT
@@ -40,10 +47,13 @@ public:
 	LooperView(ToolPlugin *tool);
 
 private slots:
-	void onTestClicked();
+	void onEnableChanged();
 
 private:
     GroupBox *m_groupBox;
+
+	LooperCtrl *m_lcontrol = nullptr;
+	std::unique_ptr<BoolModel> m_enabled;
 };
 
 
