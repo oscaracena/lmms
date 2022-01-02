@@ -55,9 +55,13 @@ public:
 		const TimePos &time,
 		f_cnt_t offset=0) override {};
 
+signals:
+	void trackChanged(int newTrackId);
+
 private:
 	friend class LooperView;
 
+	int getInstrumentTrackAt(int position);
 	void setMidiOnTrack(int trackId);
 
 	MidiPort m_midiPort;
@@ -73,13 +77,18 @@ public:
 
 private slots:
 	void onEnableChanged();
+	void onLoopLengthChanged();
+	void onTrackChanged(int newTrackId);
 
 private:
-    GroupBox *m_groupBox;
+	void enableLoop();
+	void openTrackOnPianoRoll(int trackId=-1);
 
+    GroupBox *m_groupBox;
 	LooperCtrl *m_lcontrol = nullptr;
 	MidiPortMenu *m_readablePorts = nullptr;
 	BoolModel m_enabled;
+	IntModel m_loopLength;
 };
 
 
