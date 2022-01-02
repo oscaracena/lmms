@@ -24,11 +24,11 @@
 
 /*
   Expected features (v0.1):
-    * [doable] set and control loop duration
-    * [doable] add an empty TCO on start of each track (if not exist)
-    * [doable] set MIDI input to only current selected track
-    * [doable] open first TCO of choosen track on piano-roll (show piano-roll if hidden)
-    * [doable] use MIDI Program Change (PC) messages to select track on piano-roll
+    * [OK] set and control loop duration
+    * [OK] add an empty TCO on start of each track (if not exist)
+    * [OK] set MIDI input to only current selected track
+    * [OK] open first TCO of choosen track on piano-roll (show piano-roll if hidden)
+    * [OK] use MIDI Program Change (PC) messages to select track on piano-roll
     * use MIDI Control Cahnge (CC) messages to:
         - up/down track on piano-roll
         - start/stop play and record
@@ -51,6 +51,7 @@
 #include "Engine.h"
 #include "GuiApplication.h"
 #include "InstrumentTrack.h"
+#include "LcdSpinBox.h"
 #include "PianoRoll.h"
 #include "plugin_export.h"
 #include "Song.h"
@@ -95,32 +96,32 @@ QString LooperTool::nodeName() const
 }
 
 
+// -- LopperView class ------------------------------------------------------------------
+
+
 LooperView::LooperView(ToolPlugin *tool) :
 	ToolPluginView(tool),
-    m_enabled(false, nullptr, tr("Enable/Disable Looper Tool"))
+    m_enabled(false),
+    m_loopLength(4, 1, 256)
 {
-    // Widget is initially hidden
+    // widget is initially hidden
     auto parent = parentWidget();
     // parent->hide(); // FIXME: remove on production
 
-    // Set some size related properties
+    // set some size related properties
     parent->resize(300, 200);
     parent->setMinimumWidth(300);
 	parent->setMinimumHeight(200);
 
-    // Remove maximize button
+    // remove maximize button
     Qt::WindowFlags flags = parent->windowFlags();
 	flags &= ~Qt::WindowMaximizeButtonHint;
 	parent->setWindowFlags(flags);
 
-    // Add a GroupBox to enable/disable this component
+    // add a GroupBox to enable/disable this component
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
 	m_groupBox = new GroupBox(tr("Loop Controller:"));
     mainLayout->addWidget(m_groupBox);
-
-    QVBoxLayout *gBoxLayout = new QVBoxLayout();
-	gBoxLayout->setContentsMargins(3, 15, 3, 3);
-	m_groupBox->setLayout(gBoxLayout);
 
     // when using with non-raw-clients, show list of input MIDI ports
     // FIXME: add support for raw-clients
@@ -135,10 +136,16 @@ LooperView::LooperView(ToolPlugin *tool) :
 		m_readablePorts = new MidiPortMenu(MidiPort::Input);
 		midiInputsBtn->setMenu(m_readablePorts);
 	}
-    else
-    {
-        qWarning("Looper: sorry, no support for raw clients!");
-    }
+    else { qWarning("Looper: sorry, no support for raw clients!"); }
+
+    // input to set loop length
+    LcdSpinBox *loopLength = new LcdSpinBox(3, m_groupBox, tr("Middle key"));
+	loopLength->setLabel(tr("LENGTH"));
+	loopLength->setToolTip(tr("Select the loop length (in bars)"));
+    loopLength->setGeometry(60, 24, loopLength->width(), loopLength->height());
+	loopLength->setModel(&m_loopLength);
+    connect(&m_loopLength, SIGNAL(dataChanged()),
+        this, SLOT(onLoopLengthChanged()));
 
     // initialize model for enable/disable LED
     connect(&m_enabled, SIGNAL(dataChanged()),
@@ -154,18 +161,25 @@ LooperView::~LooperView()
 }
 
 
-void LooperView::onEnableChanged() {
+void LooperView::onEnableChanged()
+{
     if (m_enabled.value())
     {
         if (!m_lcontrol)
         {
             m_lcontrol = ::new LooperCtrl();
+            connect(m_lcontrol, SIGNAL(trackChanged(int)),
+                this, SLOT(onTrackChanged(int)));
         }
+
         m_lcontrol->m_midiPort.setMode(MidiPort::Input);
         if (m_readablePorts)
         {
             m_readablePorts->setModel(&(m_lcontrol->m_midiPort));
         }
+
+        enableLoop();
+        openTrackOnPianoRoll();
     }
     else
     {
@@ -173,90 +187,80 @@ void LooperView::onEnableChanged() {
     }
 }
 
-    // [OK] use MIDI Program Change (PC) messages to select track on piano-roll
-    // class EventProcessor: public MidiEventProcessor {
-    // public:
-	//     virtual void processInEvent(const MidiEvent &ev, const TimePos &time, f_cnt_t offset=0) override
-    //     {
-    //         if (ev.type() == MidiProgramChange)
-    //         {
-    //             std::cout << "Program Change - channel: " << int(ev.channel() + 1)
-    //                       << ", key: " << int(ev.key() + 1) << std::endl;
-    //         }
-    //         else
-    //         {
-    //             std::cout << "midi event (not handled)" << std::endl;
-    //         }
-    //     }
-    // 	virtual void processOutEvent( const MidiEvent &ev, const TimePos &time, f_cnt_t offset=0) override
-	//     {
-    // 	}
-    // };
-    // // IMPORTANT! disconnect this port when looper is disabled (it will be system wide visible)
-    // // NOTE: 'new' is used here just for testing (to avoid GC), try to avoid it (or use smart pointers)
-    // // FIXME: listen for new devices, and also connect to them
-    // auto ep = new EventProcessor();
-    // auto midiPort = new MidiPort(
-    //     tr("looper-controller"), Engine::audioEngine()->midiClient(), ep, nullptr, MidiPort::Input);
-    // midiPort->setName(QString("Looper Tool"));
-    // auto inputs = midiPort->readablePorts();
-	// for (auto it = inputs.constBegin(); it != inputs.constEnd(); ++it)
-	// {
-	// 	midiPort->subscribeReadablePort(it.key(), true);
-	// }
+
+void LooperView::onLoopLengthChanged()
+{
+    if (!m_enabled.value()) { return; }
+    enableLoop();
+}
 
 
-    // [OK] open first TCO of choosen track on piano-roll (show piano-roll if hidden)
-    // auto trackId = 1;
-    // auto track = Engine::getSong()->tracks().at(trackId);
-    // if (!track || track->type() != Track::InstrumentTrack) {
-    //     qWarning("Warning: invalid selected track");
-	// 	return;
-    // }
-    // // FIXME: get TCO at pos 0 (not first TCO)
-    // auto pattern = dynamic_cast<Pattern*>(track->getTCO(0));
-    // getGUI()->pianoRoll()->setCurrentPattern(pattern);
-	// getGUI()->pianoRoll()->parentWidget()->show();
-	// getGUI()->pianoRoll()->show();
-	// getGUI()->pianoRoll()->setFocus();
+void LooperView::onTrackChanged(int newTrackId)
+{
+    openTrackOnPianoRoll(newTrackId);
+}
 
 
-    // [OK] add an empty TCO on start of each track (if not exist)
-    // auto tracks = Engine::getSong()->tracks();
-    // for (auto t : tracks) {
-    //     if (t->type() != Track::InstrumentTrack) {
-    //         continue;
-    //     }
-    //     bool exist = false;
-    //     auto tcos = t->getTCOs();
-    //     for (auto tco : tcos) {
-    //         std::cout << tco->startPosition() << std::endl;
-    //         if (tco->startPosition() == 0) {
-    //             exist = true;
-    //             break;
-    //         }
-    //     }
-    //     if (!exist) {
-    //         // FIXME: add steps to match loop length
-    //         t->createTCO(0);
-    //     }
-    // }
+void LooperView::enableLoop()
+{
+    // activate loop points
+    auto song = Engine::getSong();
+    auto timeline = song->getPlayPos(song->Mode_PlaySong).m_timeLine;
+
+    // get current settings, and change only what we want
+    QDomDocument doc;
+    auto config = doc.createElement("config");
+    timeline->saveSettings(doc, config);
+    config.setAttribute("lp0pos", 0);
+	config.setAttribute("lp1pos", m_loopLength.value() * DefaultTicksPerBar);
+	config.setAttribute("lpstate", TimeLineWidget::LoopPointsEnabled);
+    timeline->loadSettings(config);
+}
 
 
-    // --- [OK] activate loop points ----------------------------------------------
-    // auto song = Engine::getSong();
-    // auto timeline = song->getPlayPos(song->Mode_PlaySong).m_timeLine;
-    // QDomDocument doc;
-    // auto config = doc.createElement("config");
-    // FIXME: get a copy of current settings, and modify only the needed ones
-    // config.setAttribute("lp0pos", 0);
-	// config.setAttribute("lp1pos", 4 * DefaultTicksPerBar);
-	// config.setAttribute("lpstate", TimeLineWidget::LoopPointsEnabled);
-    // config.setAttribute("stopbehaviour", timeline->behaviourAtStop());
-    // timeline->loadSettings(config);
+void LooperView::openTrackOnPianoRoll(int trackId)
+{
+    // first, show piano-roll
+    getGUI()->pianoRoll()->parentWidget()->show();
+	getGUI()->pianoRoll()->show();
+	getGUI()->pianoRoll()->setFocus();
+
+    // open first TCO of choosen track on piano-roll (show piano-roll if hidden)
+    auto tracks = Engine::getSong()->tracks();
+
+    // if track is not given, search for the first instrument track (if any)
+    if (trackId == -1)
+    {
+        trackId = m_lcontrol->getInstrumentTrackAt(0);
+        if (trackId == -1) { return; }
+    }
+    Track *track = tracks.at(trackId);
+
+    // get TCO at pos 0 (not first TCO!)
+    Pattern *pattern = nullptr;
+    auto tcos = track->getTCOs();
+    for (int i=0; i<tcos.size(); i++)
+    {
+        auto tco = tcos.at(i);
+        if (tco->startPosition() == 0)
+        {
+            pattern = dynamic_cast<Pattern*>(tco);
+        }
+    }
+
+    // if not pattern, there is no TCO at pos 0, create it
+    if (!pattern)
+    {
+        auto tco = track->createTCO(0);
+        tco->setName(QString("looper-track-%1").arg(trackId));
+        pattern = dynamic_cast<Pattern*>(tco);
+    }
+
+    getGUI()->pianoRoll()->setCurrentPattern(pattern);
+}
 
 
-
+// -- LopperCtrl class ------------------------------------------------------------------
 
 
 LooperCtrl::LooperCtrl() :
@@ -292,24 +296,45 @@ void LooperCtrl::processInEvent(
 {
     if (ev.type() == MidiProgramChange)
     {
-        std::cout << "Program Change - channel: " << int(ev.channel() + 1)
-                  << ", key: " << int(ev.key() + 1) << std::endl;
-        setMidiOnTrack(ev.key());
+        int trackId = getInstrumentTrackAt(ev.key());
+        if (trackId == -1)
+        {
+            qWarning("Looper: there is no Instrument Track number %d", ev.key());
+            return;
+        }
+        setMidiOnTrack(trackId);
+        emit trackChanged(trackId);
     }
 }
 
+
+int LooperCtrl::getInstrumentTrackAt(int position)
+{
+    auto tracks = Engine::getSong()->tracks();
+    for (int i = 0; i < tracks.size(); i++)
+    {
+        auto track = tracks.at(i);
+        if (track->type() == Track::InstrumentTrack) {
+            if (position-- == 0) { return i; }
+        }
+    }
+    return -1;
+}
+
+
+// Note: before calling this method, ensure client is not raw
 void LooperCtrl::setMidiOnTrack(int trackId)
 {
     // set MIDI input to only current selected track
-    auto tracks = Engine::getSong()->tracks(); 
+    auto tracks = Engine::getSong()->tracks();
     if (trackId >= tracks.size())
     {
         qWarning("Looper: missing track %d", trackId);
         return;
     }
-    
+
     auto t = tracks.at(trackId);
-    if (t->type() != Track::InstrumentTrack) 
+    if (t->type() != Track::InstrumentTrack)
     {
         qWarning("Looper: track %d is not an Instrument Track, ignored", trackId);
         return;
@@ -318,18 +343,19 @@ void LooperCtrl::setMidiOnTrack(int trackId)
     // enable MIDI input on given track
     auto track = static_cast<InstrumentTrack*>(t);
     auto port = track->midiPort();
-    auto trInputs = port->readablePorts();  
+    auto trInputs = port->readablePorts();
     auto cfgInputs = m_midiPort.readablePorts();
-    for (auto it = cfgInputs.constBegin(); it != cfgInputs.constEnd(); it++)  
+    for (auto it = cfgInputs.constBegin(); it != cfgInputs.constEnd(); it++)
     {
-        if (trInputs.constFind(it.key()) != trInputs.constEnd()) {
+        if (trInputs.constFind(it.key()) != trInputs.constEnd())
+        {
             port->subscribeReadablePort(it.key(), it.value());
         }
     }
     emit port->readablePortsChanged();
 
     // remove MIDI input from other tracks
-    for (int i = 0; i < tracks.size(); i++) 
+    for (int i = 0; i < tracks.size(); i++)
     {
         if (i == trackId) { continue; }
         auto t = tracks.at(i);
@@ -337,54 +363,12 @@ void LooperCtrl::setMidiOnTrack(int trackId)
 
         auto track = static_cast<InstrumentTrack*>(t);
         auto port = track->midiPort();
-        auto inputs = port->readablePorts();  
+        auto inputs = port->readablePorts();
 
-        for (auto it = inputs.constBegin(); it != inputs.constEnd(); it++)  
-        {        
-            port->subscribeReadablePort(it.key(), false);        
+        for (auto it = inputs.constBegin(); it != inputs.constEnd(); it++)
+        {
+            port->subscribeReadablePort(it.key(), false);
         }
         emit port->readablePortsChanged();
     }
-
-    // for (int idx = 0; idx < tracks.size(); ++idx) {
-    //     std::cout << "track id: " << idx << std::endl;
-    //     // handle only instrument tracks
-    //     auto t = tracks.at(idx);
-    //     if (t->type() != Track::InstrumentTrack) {
-    //         continue;
-    //     }
-    //     auto track = static_cast<InstrumentTrack *>(t);
-    //     auto port = track->midiPort();
-    //     auto inputs = port->readablePorts();
-    //     // if track is not selected one, disconnect all midi inputs
-    //     if (idx != trackId) {
-    //         auto in = inputs.constBegin();
-    //         while (in != inputs.constEnd()) {
-    //             if (in.value()) {
-    //                 port->subscribeReadablePort(in.key(), false);
-    //                 emit port->readablePortsChanged();
-    //             }
-    //             ++in;
-    //         }
-    //     }
-    //     // otherwise, connect only selected input
-    //     else {
-    //         auto in = inputs.constBegin();
-    //         while (in != inputs.constEnd()) {
-    //             if (in.key() == midi_in) {
-    //                 if (!in.value()) {
-    //                     port->subscribeReadablePort(in.key(), true);
-    //                     emit port->readablePortsChanged();
-    //                 }
-    //             }
-    //             else {
-    //                 if (in.value()) {
-    //                     port->subscribeReadablePort(in.key(), false);
-    //                     emit port->readablePortsChanged();
-    //                 }
-    //             }
-    //             ++in;
-    //         }
-    //     }
-    // }
 }
