@@ -64,7 +64,8 @@ private:
 	friend class LooperView;
 
 	int getInstrumentTrackAt(int position);
-	void setMidiOnTrack(int trackId);
+	void setMidiOnTrack(int trackId=-1);
+	void setMutedOnAllTracks(bool state);
 
 	MidiPort m_midiPort;
 };

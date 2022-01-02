@@ -29,10 +29,17 @@
     * [OK] set MIDI input to only current selected track
     * [OK] open first TCO of choosen track on piano-roll (show piano-roll if hidden)
     * [OK] use MIDI Program Change (PC) messages to select track on piano-roll
-    * use MIDI Control Cahnge (CC) messages to play/stop and record
+    * [OK] use MIDI Control Cahnge (CC) messages to play/stop and record
+    * [OK] enable/disable (mute) current track
+    * [OK] toggle 'solo' for current track
+    * [OK] enable all tracks
     * control launch-Q (determine when a track will start playing/recording)
+    * connect knobs to each track volume
     * support custom MIDI mappings for above controls
     * save/load profiles (use loadSettings/saveSettings)
+
+  Future features (>v0.1):
+    * add dynamic automations for tracks
 */
 
 
@@ -177,7 +184,13 @@ void LooperView::onEnableChanged()
         }
 
         enableLoop();
-        openTrackOnPianoRoll();
+
+        auto trackId = m_lcontrol->getInstrumentTrackAt(0);
+        if (trackId != -1)
+        {
+            openTrackOnPianoRoll(trackId);
+            m_lcontrol->setMidiOnTrack(trackId);
+        }
     }
     else
     {
@@ -218,11 +231,6 @@ void LooperView::enableLoop()
 
 void LooperView::openTrackOnPianoRoll(int trackId)
 {
-    // first, show piano-roll
-    getGUI()->pianoRoll()->parentWidget()->show();
-	getGUI()->pianoRoll()->show();
-	getGUI()->pianoRoll()->setFocus();
-
     // open first TCO of choosen track on piano-roll (show piano-roll if hidden)
     auto tracks = Engine::getSong()->tracks();
 
@@ -255,6 +263,9 @@ void LooperView::openTrackOnPianoRoll(int trackId)
     }
 
     getGUI()->pianoRoll()->setCurrentPattern(pattern);
+    getGUI()->pianoRoll()->parentWidget()->show();
+	getGUI()->pianoRoll()->show();
+	getGUI()->pianoRoll()->setFocus();
 }
 
 
@@ -308,6 +319,7 @@ void LooperCtrl::processInEvent(
     else if (ev.type() == MidiControlChange)
     {
         if (ev.velocity() == 0) { return; }
+        auto pianoRoll = getGUI()->pianoRoll();
 
         // FIXME: allow user to change this mappings
         switch (ev.key())
@@ -315,15 +327,36 @@ void LooperCtrl::processInEvent(
             case 16: // toggle play
             {
                 auto song = Engine::getSong();
-                if (song->isPlaying()) { song->stop(); }
+                if (pianoRoll->isRecording()) { pianoRoll->stop(); }
+                else if (song->isPlaying()) { song->stop(); }
                 else { song->playSong(); }
                 break;
             }
             case 17: // toggle record
             {
-                auto pianoRoll = getGUI()->pianoRoll();
                 if (pianoRoll->isRecording()) { pianoRoll->stop(); }
                 else { pianoRoll->recordAccompany(); }
+                break;
+            }
+            case 18: // toggle disable current track
+            {
+                auto tco = pianoRoll->currentPattern();
+                if (!tco) { return; }
+                auto track = tco->getTrack();
+                track->setMuted(!track->isMuted());
+                break;
+            }
+            case 19: // toggle solo on current track
+            {
+                auto tco = pianoRoll->currentPattern();
+                if (!tco) { return; }
+                auto track = tco->getTrack();
+                track->setSolo(!track->isSolo());
+                break;
+            }
+            case 23: // enable all tracks
+            {
+                setMutedOnAllTracks(false);
                 break;
             }
         }
@@ -348,6 +381,13 @@ int LooperCtrl::getInstrumentTrackAt(int position)
 // Note: before calling this method, ensure client is not raw
 void LooperCtrl::setMidiOnTrack(int trackId)
 {
+    // if track is not given, search for the first instrument track (if any)
+    if (trackId == -1)
+    {
+        trackId = getInstrumentTrackAt(0);
+        if (trackId == -1) { return; }
+    }
+
     // set MIDI input to only current selected track
     auto tracks = Engine::getSong()->tracks();
     if (trackId >= tracks.size())
@@ -393,5 +433,17 @@ void LooperCtrl::setMidiOnTrack(int trackId)
             port->subscribeReadablePort(it.key(), false);
         }
         emit port->readablePortsChanged();
+    }
+}
+
+
+void LooperCtrl::setMutedOnAllTracks(bool state)
+{
+    auto tracks = Engine::getSong()->tracks();
+    for (int i = 0; i < tracks.size(); i++)
+    {
+        auto t = tracks.at(i);
+        if (t->type() != Track::InstrumentTrack) { continue; }
+        t->setMuted(state);
     }
 }
