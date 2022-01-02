@@ -300,10 +300,52 @@ void LooperCtrl::processInEvent(
 
 void LooperCtrl::setMidiOnTrack(int trackId)
 {
+    // set MIDI input to only current selected track
+    auto tracks = Engine::getSong()->tracks(); 
+    if (trackId >= tracks.size())
+    {
+        qWarning("Looper: missing track %d", trackId);
+        return;
+    }
+    
+    auto t = tracks.at(trackId);
+    if (t->type() != Track::InstrumentTrack) 
+    {
+        qWarning("Looper: track %d is not an Instrument Track, ignored", trackId);
+        return;
+    }
 
-    // set MIDI input to only current selected track  -------------------
-    // auto midi_in = "0:1 System:Announce";
-    // auto tracks = Engine::getSong()->tracks();
+    // enable MIDI input on given track
+    auto track = static_cast<InstrumentTrack*>(t);
+    auto port = track->midiPort();
+    auto trInputs = port->readablePorts();  
+    auto cfgInputs = m_midiPort.readablePorts();
+    for (auto it = cfgInputs.constBegin(); it != cfgInputs.constEnd(); it++)  
+    {
+        if (trInputs.constFind(it.key()) != trInputs.constEnd()) {
+            port->subscribeReadablePort(it.key(), it.value());
+        }
+    }
+    emit port->readablePortsChanged();
+
+    // remove MIDI input from other tracks
+    for (int i = 0; i < tracks.size(); i++) 
+    {
+        if (i == trackId) { continue; }
+        auto t = tracks.at(i);
+        if (t->type() != Track::InstrumentTrack) { continue; }
+
+        auto track = static_cast<InstrumentTrack*>(t);
+        auto port = track->midiPort();
+        auto inputs = port->readablePorts();  
+
+        for (auto it = inputs.constBegin(); it != inputs.constEnd(); it++)  
+        {        
+            port->subscribeReadablePort(it.key(), false);        
+        }
+        emit port->readablePortsChanged();
+    }
+
     // for (int idx = 0; idx < tracks.size(); ++idx) {
     //     std::cout << "track id: " << idx << std::endl;
     //     // handle only instrument tracks
