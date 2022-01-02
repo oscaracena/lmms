@@ -29,9 +29,7 @@
     * [OK] set MIDI input to only current selected track
     * [OK] open first TCO of choosen track on piano-roll (show piano-roll if hidden)
     * [OK] use MIDI Program Change (PC) messages to select track on piano-roll
-    * use MIDI Control Cahnge (CC) messages to:
-        - up/down track on piano-roll
-        - start/stop play and record
+    * use MIDI Control Cahnge (CC) messages to play/stop and record
     * control launch-Q (determine when a track will start playing/recording)
     * support custom MIDI mappings for above controls
     * save/load profiles (use loadSettings/saveSettings)
@@ -304,6 +302,31 @@ void LooperCtrl::processInEvent(
         }
         setMidiOnTrack(trackId);
         emit trackChanged(trackId);
+    }
+
+    // FIXME: maybe use controllers for this
+    else if (ev.type() == MidiControlChange)
+    {
+        if (ev.velocity() == 0) { return; }
+
+        // FIXME: allow user to change this mappings
+        switch (ev.key())
+        {
+            case 16: // toggle play
+            {
+                auto song = Engine::getSong();
+                if (song->isPlaying()) { song->stop(); }
+                else { song->playSong(); }
+                break;
+            }
+            case 17: // toggle record
+            {
+                auto pianoRoll = getGUI()->pianoRoll();
+                if (pianoRoll->isRecording()) { pianoRoll->stop(); }
+                else { pianoRoll->recordAccompany(); }
+                break;
+            }
+        }
     }
 }
 

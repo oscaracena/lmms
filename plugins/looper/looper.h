@@ -57,6 +57,8 @@ public:
 
 signals:
 	void trackChanged(int newTrackId);
+	void togglePlay();
+	void toggleRecord();
 
 private:
 	friend class LooperView;
