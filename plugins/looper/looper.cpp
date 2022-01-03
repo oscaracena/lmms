@@ -34,7 +34,7 @@
     * [OK] MIDI CC pad3: enable/disable (mute) current track
     * [OK] MIDI CC pad4: toggle 'solo' for current track
     * [OK] MIDI CC pad5: enable (unmute) all tracks
-    * support custom MIDI mappings for CC controls
+    * [OK] support custom MIDI mappings for CC controls
     * save/load profiles (use loadSettings/saveSettings)
 
   Future features (v0.2):
@@ -94,7 +94,7 @@ extern "C"
 
 
 LooperTool::LooperTool() :
-	ToolPlugin(&looper_plugin_descriptor, nullptr)
+	ToolPlugin(&looper_plugin_descriptor)
 {
 }
 
@@ -110,6 +110,18 @@ QString LooperTool::nodeName() const
 }
 
 
+void LooperTool::saveSettings(QDomDocument &doc, QDomElement &element)
+{
+    std::cout << "save settings\n";
+}
+
+
+void LooperTool::loadSettings(const QDomElement &element)
+{
+    std::cout << "load settings\n";
+}
+
+
 // -- LopperView class ------------------------------------------------------------------
 
 
@@ -120,7 +132,7 @@ LooperView::LooperView(ToolPlugin *tool) :
 {
     // widget is initially hidden
     auto parent = parentWidget();
-    // parent->hide(); // FIXME: remove on production
+    parent->hide();
 
     // set some size related properties
     parent->resize(300, 190);
@@ -134,7 +146,7 @@ LooperView::LooperView(ToolPlugin *tool) :
 
     // add a GroupBox to enable/disable this component
     auto mainLayout = new QVBoxLayout(this);
-	m_groupBox = new GroupBox(tr("Loop Controller:"));
+	auto m_groupBox = new GroupBox(tr("Loop Controller:"));
     mainLayout->addWidget(m_groupBox);
 
     auto grid = new QGridLayout(m_groupBox);
@@ -217,7 +229,6 @@ LooperView::LooperView(ToolPlugin *tool) :
     buttons->addWidget(soloBtn);
 
     buttons->addStretch(1);
-    // parent->layout()->setSizeConstraint(QLayout::SetFixedSize);
 }
 
 
@@ -232,8 +243,8 @@ void LooperView::onEnableChanged()
     {
         if (!m_lcontrol)
         {
-            m_lcontrol = LooperCtrlPtr(::new LooperCtrl());
-            connect(m_lcontrol.get(), SIGNAL(trackChanged(int)),
+            m_lcontrol = ::new LooperCtrl();
+            connect(m_lcontrol, SIGNAL(trackChanged(int)),
                 this, SLOT(onTrackChanged(int)));
         }
 

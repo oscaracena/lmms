@@ -76,11 +76,11 @@ private:
 	void setMidiOnTrack(int trackId=-1);
 
 	MidiPortPtr m_midiPort;
-	KeyBind m_play = {0, 0};
-	KeyBind m_record = {0, 0};
-	KeyBind m_muteCurrent = {0, 0};
-	KeyBind m_unmuteAll = {0, 0};
-	KeyBind m_solo = {0, 0};
+	KeyBind m_play = {-1, -1};
+	KeyBind m_record = {-1, -1};
+	KeyBind m_muteCurrent = {-1, -1};
+	KeyBind m_unmuteAll = {-1, -1};
+	KeyBind m_solo = {-1, -1};
 };
 
 
@@ -101,9 +101,7 @@ private:
 	void enableLoop();
 	void openTrackOnPianoRoll(int trackId=-1);
 
-    GroupBox *m_groupBox;
-
-	LooperCtrlPtr m_lcontrol;
+	LooperCtrl *m_lcontrol = nullptr;
 	MidiPortMenu *m_readablePorts = nullptr;
 	BoolModel m_enabled;
 	IntModel m_loopLength;
@@ -123,16 +121,8 @@ public:
 
 	virtual QString nodeName() const;
 
-	virtual void saveSettings(QDomDocument &doc, QDomElement &element)
-	{
-		Q_UNUSED(doc)
-		Q_UNUSED(element)
-	}
-
-	virtual void loadSettings(const QDomElement &element)
-	{
-		Q_UNUSED(element)
-	}
+	virtual void saveSettings(QDomDocument &doc, QDomElement &element);
+	virtual void loadSettings(const QDomElement &element);
 };
 
 
