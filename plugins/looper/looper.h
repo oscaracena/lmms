@@ -1,5 +1,5 @@
 /*
- * looper.cpp - handy tool to help with live looping functions
+ * looper.h - handy tool to help with live looping functions
  *
  * Copyright (c) 2022 Oscar Acena <oscaracena/at/gmail/dot/com>
  *
@@ -29,6 +29,7 @@
 #include <memory>
 
 #include <QObject>
+#include <QSharedPointer>
 
 #include "GroupBox.h"
 #include "MidiEventProcessor.h"
@@ -38,12 +39,20 @@
 #include "ToolPluginView.h"
 
 
+class LooperCtrl;
+
+
+using MidiPortPtr = QSharedPointer<MidiPort>;
+using LooperCtrlPtr = QSharedPointer<LooperCtrl>;
+using KeyBind = QPair<int16_t, int16_t>;
+
+
 class LooperCtrl : public QObject, public MidiEventProcessor
 {
 	Q_OBJECT
 public:
 	LooperCtrl();
-	~LooperCtrl();
+	virtual ~LooperCtrl();
 
 	virtual void processInEvent(
 		const MidiEvent &ev,
@@ -65,9 +74,13 @@ private:
 
 	int getInstrumentTrackAt(int position);
 	void setMidiOnTrack(int trackId=-1);
-	void setMutedOnAllTracks(bool state);
 
-	MidiPort m_midiPort;
+	MidiPortPtr m_midiPort;
+	KeyBind m_play = {0, 0};
+	KeyBind m_record = {0, 0};
+	KeyBind m_muteCurrent = {0, 0};
+	KeyBind m_unmuteAll = {0, 0};
+	KeyBind m_solo = {0, 0};
 };
 
 
@@ -76,19 +89,21 @@ class LooperView : public ToolPluginView
   	Q_OBJECT
 public:
 	LooperView(ToolPlugin *tool);
-	~LooperView();
+	virtual ~LooperView();
 
 private slots:
 	void onEnableChanged();
 	void onLoopLengthChanged();
 	void onTrackChanged(int newTrackId);
+	void onMappingBtnClicked();
 
 private:
 	void enableLoop();
 	void openTrackOnPianoRoll(int trackId=-1);
 
     GroupBox *m_groupBox;
-	LooperCtrl *m_lcontrol = nullptr;
+
+	LooperCtrlPtr m_lcontrol;
 	MidiPortMenu *m_readablePorts = nullptr;
 	BoolModel m_enabled;
 	IntModel m_loopLength;
@@ -99,6 +114,7 @@ class LooperTool : public ToolPlugin
 {
 public:
     LooperTool();
+	virtual ~LooperTool();
 
     virtual PluginView* instantiateView(QWidget *)
 	{
