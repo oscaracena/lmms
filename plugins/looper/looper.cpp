@@ -26,24 +26,27 @@
   Expected features (v0.1):
     * [OK] set and control loop duration
     * [OK] add an empty TCO on start of each track (if not exist)
-    * [OK] set MIDI input to only current selected track
     * [OK] open first TCO of choosen track on piano-roll (show piano-roll if hidden)
-    * [OK] use MIDI Program Change (PC) messages to select track on piano-roll
-    * [OK] use MIDI Control Cahnge (CC) messages to play/stop and record
-    * [OK] enable/disable (mute) current track
-    * [OK] toggle 'solo' for current track
-    * [OK] enable all tracks
-    * control launch-Q (determine when a track will start playing/recording)
-    * connect knobs to each track volume
-    * support custom MIDI mappings for above controls
+    * [OK] MIDI PC: view current track (first TCO) on piano-roll
+    * [OK] MIDI PC: set MIDI input to only current track
+    * [OK] MIDI CC pad1: start/stop playing (on song editor)
+    * [OK] MIDI CC pad2: start/stop record (on piano-roll)
+    * [OK] MIDI CC pad3: enable/disable (mute) current track
+    * [OK] MIDI CC pad4: toggle 'solo' for current track
+    * [OK] MIDI CC pad5: enable (unmute) all tracks
+    * support custom MIDI mappings for CC controls
     * save/load profiles (use loadSettings/saveSettings)
 
-  Future features (>v0.1):
+  Future features (v0.2):
+    * control launch-Q (determine when a track will mute/unmute itself)
     * add dynamic automations for tracks
+    * wait start recording until first note comes
+    * support for TCO colors (no controlled, random, fixed)
 */
 
 
 #include "looper.h"
+#include "MidiConnectionDialog.h"
 
 #include <iostream>
 
@@ -52,11 +55,12 @@
 
 #include "ConfigManager.h"
 #include "embed.h"
-#include "MidiClient.h"
 #include "Engine.h"
 #include "GuiApplication.h"
 #include "InstrumentTrack.h"
 #include "LcdSpinBox.h"
+#include "MainWindow.h"
+#include "MidiClient.h"
 #include "PianoRoll.h"
 #include "plugin_export.h"
 #include "Song.h"
@@ -95,6 +99,11 @@ LooperTool::LooperTool() :
 }
 
 
+LooperTool::~LooperTool()
+{
+}
+
+
 QString LooperTool::nodeName() const
 {
 	return looper_plugin_descriptor.name;
@@ -114,27 +123,32 @@ LooperView::LooperView(ToolPlugin *tool) :
     // parent->hide(); // FIXME: remove on production
 
     // set some size related properties
-    parent->resize(300, 200);
-    parent->setMinimumWidth(300);
-	parent->setMinimumHeight(200);
+    parent->resize(300, 190);
+    parent->setMaximumSize(parent->width(), parent->height());
+    parent->setMinimumSize(parent->width(), parent->height());
 
     // remove maximize button
-    Qt::WindowFlags flags = parent->windowFlags();
+    auto flags = parent->windowFlags();
 	flags &= ~Qt::WindowMaximizeButtonHint;
 	parent->setWindowFlags(flags);
 
     // add a GroupBox to enable/disable this component
-    QVBoxLayout *mainLayout = new QVBoxLayout(this);
+    auto mainLayout = new QVBoxLayout(this);
 	m_groupBox = new GroupBox(tr("Loop Controller:"));
     mainLayout->addWidget(m_groupBox);
 
+    auto grid = new QGridLayout(m_groupBox);
+    grid->setContentsMargins(5, 20, 5, 5);
+    grid->setSpacing(10);
+    grid->setColumnStretch(1, 1);
+
     // when using with non-raw-clients, show list of input MIDI ports
     // FIXME: add support for raw-clients
-	ToolButton *midiInputsBtn = new ToolButton(m_groupBox);
+	auto midiInputsBtn = new ToolButton(m_groupBox);
 	midiInputsBtn->setIcon(embed::getIconPixmap("piano"));
-    midiInputsBtn->setText(tr("MIDI-devices to receive events from"));
-    midiInputsBtn->setGeometry(15, 24, 32, 32);
+    midiInputsBtn->setToolTip(tr("MIDI-devices to receive events from"));
     midiInputsBtn->setPopupMode(QToolButton::InstantPopup);
+    grid->addWidget(midiInputsBtn, 0, 0, Qt::AlignLeft);
 
 	if (!Engine::audioEngine()->midiClient()->isRaw())
 	{
@@ -144,25 +158,71 @@ LooperView::LooperView(ToolPlugin *tool) :
     else { qWarning("Looper: sorry, no support for raw clients!"); }
 
     // input to set loop length
-    LcdSpinBox *loopLength = new LcdSpinBox(3, m_groupBox, tr("Middle key"));
+    auto loopLength = new LcdSpinBox(3, m_groupBox, tr("Middle key"));
 	loopLength->setLabel(tr("LENGTH"));
 	loopLength->setToolTip(tr("Select the loop length (in bars)"));
-    loopLength->setGeometry(60, 24, loopLength->width(), loopLength->height());
 	loopLength->setModel(&m_loopLength);
     connect(&m_loopLength, SIGNAL(dataChanged()),
         this, SLOT(onLoopLengthChanged()));
+    grid->addWidget(loopLength, 0, 1, Qt::AlignLeft);
 
     // initialize model for enable/disable LED
     connect(&m_enabled, SIGNAL(dataChanged()),
 		this, SLOT(onEnableChanged()));
     m_groupBox->setModel(&m_enabled);
+
+    // show buttons to change mappings
+    auto buttonTab = new TabWidget(tr("Button Mappgings:"), m_groupBox);
+    auto buttons = new QHBoxLayout(buttonTab);
+    grid->addWidget(buttonTab, 1, 0, 1, 2);
+
+    auto playBtn = new QPushButton();
+    playBtn->setProperty("action", "play");;
+	playBtn->setIcon(embed::getIconPixmap("play"));
+    playBtn->setStyleSheet("padding: 3px");
+    playBtn->setToolTip(tr("Play/Stop button mapping"));
+    connect(playBtn, SIGNAL(clicked()), this, SLOT(onMappingBtnClicked()));
+    buttons->addWidget(playBtn);
+
+    auto recordBtn = new QPushButton();
+    recordBtn->setProperty("action", "record");;
+	recordBtn->setIcon(embed::getIconPixmap("record_accompany"));
+    recordBtn->setToolTip(tr("Start/Stop Recording button mapping"));
+    recordBtn->setStyleSheet("padding: 3px");
+    connect(recordBtn, SIGNAL(clicked()), this, SLOT(onMappingBtnClicked()));
+    buttons->addWidget(recordBtn);
+
+    auto muteBtn = new QPushButton();
+    muteBtn->setProperty("action", "muteCurrent");;
+	muteBtn->setIcon(PLUGIN_NAME::getIconPixmap("mute_current"));
+    muteBtn->setToolTip(tr("Toggle Mute Current Track button mapping"));
+    muteBtn->setStyleSheet("padding: 3px");
+    connect(muteBtn, SIGNAL(clicked()), this, SLOT(onMappingBtnClicked()));
+    buttons->addWidget(muteBtn);
+
+    auto unmuteAllBtn = new QPushButton();
+    unmuteAllBtn->setProperty("action", "unmuteAll");;
+	unmuteAllBtn->setIcon(PLUGIN_NAME::getIconPixmap("unmute_all"));
+    unmuteAllBtn->setToolTip(tr("Unmute All Tracks button mapping"));
+    unmuteAllBtn->setStyleSheet("padding: 3px");
+    connect(unmuteAllBtn, SIGNAL(clicked()), this, SLOT(onMappingBtnClicked()));
+    buttons->addWidget(unmuteAllBtn);
+
+    auto soloBtn = new QPushButton();
+    soloBtn->setProperty("action", "solo");;
+	soloBtn->setIcon(PLUGIN_NAME::getIconPixmap("solo"));
+    soloBtn->setToolTip(tr("Solo Track button mapping"));
+    soloBtn->setStyleSheet("padding: 3px");
+    connect(soloBtn, SIGNAL(clicked()), this, SLOT(onMappingBtnClicked()));
+    buttons->addWidget(soloBtn);
+
+    buttons->addStretch(1);
+    // parent->layout()->setSizeConstraint(QLayout::SetFixedSize);
 }
 
 
 LooperView::~LooperView()
 {
-    if (m_lcontrol) { ::delete m_lcontrol; }
-    if (m_readablePorts) { ::delete m_readablePorts; }
 }
 
 
@@ -172,15 +232,15 @@ void LooperView::onEnableChanged()
     {
         if (!m_lcontrol)
         {
-            m_lcontrol = ::new LooperCtrl();
-            connect(m_lcontrol, SIGNAL(trackChanged(int)),
+            m_lcontrol = LooperCtrlPtr(::new LooperCtrl());
+            connect(m_lcontrol.get(), SIGNAL(trackChanged(int)),
                 this, SLOT(onTrackChanged(int)));
         }
 
-        m_lcontrol->m_midiPort.setMode(MidiPort::Input);
+        m_lcontrol->m_midiPort->setMode(MidiPort::Input);
         if (m_readablePorts)
         {
-            m_readablePorts->setModel(&(m_lcontrol->m_midiPort));
+            m_readablePorts->setModel(m_lcontrol->m_midiPort.get());
         }
 
         enableLoop();
@@ -194,7 +254,7 @@ void LooperView::onEnableChanged()
     }
     else
     {
-        m_lcontrol->m_midiPort.setMode(MidiPort::Disabled);
+        m_lcontrol->m_midiPort->setMode(MidiPort::Disabled);
     }
 }
 
@@ -209,6 +269,34 @@ void LooperView::onLoopLengthChanged()
 void LooperView::onTrackChanged(int newTrackId)
 {
     openTrackOnPianoRoll(newTrackId);
+}
+
+
+void LooperView::onMappingBtnClicked()
+{
+    // if looper not enabled, do nothing
+    if (!m_enabled.value() || !m_lcontrol) { return; }
+
+    auto action = sender()->property("action").toString().toStdString();
+    KeyBind def = {-1, -1};
+    if (action == "play")             { def = m_lcontrol->m_play; }
+    else if (action == "record")      { def = m_lcontrol->m_record; }
+    else if (action == "muteCurrent") { def = m_lcontrol->m_muteCurrent; }
+    else if (action == "unmuteAll")   { def = m_lcontrol->m_unmuteAll; }
+    else if (action == "solo")        { def = m_lcontrol->m_solo; }
+
+    MidiConnectionDialog dialog(
+        getGUI()->mainWindow(), m_lcontrol->m_midiPort.get(),
+        def.first + 1, def.second + 1);
+    if (dialog.exec() != QDialog::Accepted) { return; }
+
+    auto selected = dialog.getSelection();
+
+    if (action == "play") { m_lcontrol->m_play = selected; }
+    else if (action == "record") { m_lcontrol->m_record = selected; }
+    else if (action == "muteCurrent") { m_lcontrol->m_muteCurrent = selected; }
+    else if (action == "unmuteAll") { m_lcontrol->m_unmuteAll = selected; }
+    else if (action == "solo") { m_lcontrol->m_solo = selected; }
 }
 
 
@@ -272,12 +360,12 @@ void LooperView::openTrackOnPianoRoll(int trackId)
 // -- LopperCtrl class ------------------------------------------------------------------
 
 
-LooperCtrl::LooperCtrl() :
-    m_midiPort(QString("looper-controller"), Engine::audioEngine()->midiClient(),
-        this, nullptr, MidiPort::Input)
+LooperCtrl::LooperCtrl()
 {
-    qInfo("Looper: controller created");
-    m_midiPort.setName(QString("Looper Tool"));
+    m_midiPort = MidiPortPtr::create(QString("looper-controller"), Engine::audioEngine()->midiClient(),
+        this, nullptr, MidiPort::Input);
+
+    m_midiPort->setName(QString("Looper Tool"));
 
     // get system wide MIDI selected device (if any) and connect it
     // FIXME: add support for raw-client
@@ -288,9 +376,11 @@ LooperCtrl::LooperCtrl() :
             "midi", "midiautoassign");
 	    if (client->readablePorts().indexOf(device) >= 0)
 	    {
-		    m_midiPort.subscribeReadablePort(device, true);
+		    m_midiPort->subscribeReadablePort(device, true);
 	    }
     }
+
+    qInfo("Looper: controller created");
 }
 
 
@@ -315,50 +405,50 @@ void LooperCtrl::processInEvent(
         emit trackChanged(trackId);
     }
 
-    // FIXME: maybe use controllers for this
     else if (ev.type() == MidiControlChange)
     {
         if (ev.velocity() == 0) { return; }
         auto pianoRoll = getGUI()->pianoRoll();
 
-        // FIXME: allow user to change this mappings
-        switch (ev.key())
+        if (ev.channel() == m_play.first && ev.key() == m_play.second)
         {
-            case 16: // toggle play
+            auto song = Engine::getSong();
+            if (pianoRoll->isRecording()) { pianoRoll->stop(); }
+            else if (song->isPlaying()) { song->stop(); }
+            else { song->playSong(); }
+        }
+
+        else if (ev.channel() == m_record.first && ev.key() == m_record.second)
+        {
+            if (pianoRoll->isRecording()) { pianoRoll->stop(); }
+            else { pianoRoll->recordAccompany(); }
+        }
+
+        else if (ev.channel() == m_muteCurrent.first && ev.key() == m_muteCurrent.second)
+        {
+            auto tco = pianoRoll->currentPattern();
+            if (!tco) { return; }
+            auto track = tco->getTrack();
+            track->setMuted(!track->isMuted());
+        }
+
+        else if (ev.channel() == m_unmuteAll.first && ev.key() == m_unmuteAll.second)
+        {
+            auto tracks = Engine::getSong()->tracks();
+            for (int i = 0; i < tracks.size(); i++)
             {
-                auto song = Engine::getSong();
-                if (pianoRoll->isRecording()) { pianoRoll->stop(); }
-                else if (song->isPlaying()) { song->stop(); }
-                else { song->playSong(); }
-                break;
+                auto t = tracks.at(i);
+                if (t->type() != Track::InstrumentTrack) { continue; }
+                t->setMuted(false);
             }
-            case 17: // toggle record
-            {
-                if (pianoRoll->isRecording()) { pianoRoll->stop(); }
-                else { pianoRoll->recordAccompany(); }
-                break;
-            }
-            case 18: // toggle disable current track
-            {
-                auto tco = pianoRoll->currentPattern();
-                if (!tco) { return; }
-                auto track = tco->getTrack();
-                track->setMuted(!track->isMuted());
-                break;
-            }
-            case 19: // toggle solo on current track
-            {
-                auto tco = pianoRoll->currentPattern();
-                if (!tco) { return; }
-                auto track = tco->getTrack();
-                track->setSolo(!track->isSolo());
-                break;
-            }
-            case 23: // enable all tracks
-            {
-                setMutedOnAllTracks(false);
-                break;
-            }
+        }
+
+        else if (ev.channel() == m_solo.first && ev.key() == m_solo.second)
+        {
+            auto tco = pianoRoll->currentPattern();
+            if (!tco) { return; }
+            auto track = tco->getTrack();
+            track->setSolo(!track->isSolo());
         }
     }
 }
@@ -407,7 +497,7 @@ void LooperCtrl::setMidiOnTrack(int trackId)
     auto track = static_cast<InstrumentTrack*>(t);
     auto port = track->midiPort();
     auto trInputs = port->readablePorts();
-    auto cfgInputs = m_midiPort.readablePorts();
+    auto cfgInputs = m_midiPort->readablePorts();
     for (auto it = cfgInputs.constBegin(); it != cfgInputs.constEnd(); it++)
     {
         if (trInputs.constFind(it.key()) != trInputs.constEnd())
@@ -433,17 +523,5 @@ void LooperCtrl::setMidiOnTrack(int trackId)
             port->subscribeReadablePort(it.key(), false);
         }
         emit port->readablePortsChanged();
-    }
-}
-
-
-void LooperCtrl::setMutedOnAllTracks(bool state)
-{
-    auto tracks = Engine::getSong()->tracks();
-    for (int i = 0; i < tracks.size(); i++)
-    {
-        auto t = tracks.at(i);
-        if (t->type() != Track::InstrumentTrack) { continue; }
-        t->setMuted(state);
     }
 }
