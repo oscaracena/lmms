@@ -35,27 +35,37 @@
     * [OK] MIDI CC pad4: toggle 'solo' for current track
     * [OK] MIDI CC pad5: enable (unmute) all tracks
     * [OK] support custom MIDI mappings for CC controls
-    * save/load profiles (use loadSettings/saveSettings)
+    * save/load presets (load 'default' on init)
 
   Future features (v0.2):
+    * MIDI CC pad6: clear all TCO notes of current track (press twice to confirm)
     * control launch-Q (determine when a track will mute/unmute itself)
     * add dynamic automations for tracks
     * wait start recording until first note comes
     * support for TCO colors (no controlled, random, fixed)
+    * support for multiple TCOs per track (move TCO outside the loop, and create new)
+    * change between play and record seamlessly (no stop playing)
+    * start/stop recording within the quantization (at start of next loop iter)
+    * handle "Sample" tracks
 */
 
 
 #include "looper.h"
 #include "MidiConnectionDialog.h"
 
+// DEVEL helpers
 #include <iostream>
+#include <QTextStream>
 
 #include <QMdiSubWindow>
+#include <QMessageBox>
 #include <QVBoxLayout>
 
 #include "ConfigManager.h"
+#include "DataFile.h"
 #include "embed.h"
 #include "Engine.h"
+#include "FileDialog.h"
 #include "GuiApplication.h"
 #include "InstrumentTrack.h"
 #include "LcdSpinBox.h"
@@ -77,7 +87,7 @@ extern "C"
         "Looper Tool",
         QT_TRANSLATE_NOOP(
             "pluginBrowser",
-            "Tool to help with live looping"),
+            "A tool to help with live looping"),
         "Oscar Acena <oscaracena/at/gmail/dot/com>",
         0x0100,
         Plugin::Tool,
@@ -86,7 +96,7 @@ extern "C"
             nullptr
     };
 
-    PLUGIN_EXPORT Plugin * lmms_plugin_main(Model *parent, void *data)
+    PLUGIN_EXPORT Plugin *lmms_plugin_main(Model *parent, void *data)
     {
         return new LooperTool;
     }
@@ -94,7 +104,7 @@ extern "C"
 
 
 LooperTool::LooperTool() :
-	ToolPlugin(&looper_plugin_descriptor)
+	ToolPlugin(&looper_plugin_descriptor, nullptr)
 {
 }
 
@@ -112,13 +122,14 @@ QString LooperTool::nodeName() const
 
 void LooperTool::saveSettings(QDomDocument &doc, QDomElement &element)
 {
-    std::cout << "save settings\n";
+    Q_UNUSED(doc);
+    Q_UNUSED(element);
 }
 
 
 void LooperTool::loadSettings(const QDomElement &element)
 {
-    std::cout << "load settings\n";
+    Q_UNUSED(element);
 }
 
 
@@ -132,7 +143,7 @@ LooperView::LooperView(ToolPlugin *tool) :
 {
     // widget is initially hidden
     auto parent = parentWidget();
-    parent->hide();
+    // parent->hide();
 
     // set some size related properties
     parent->resize(300, 190);
@@ -148,6 +159,11 @@ LooperView::LooperView(ToolPlugin *tool) :
     auto mainLayout = new QVBoxLayout(this);
 	auto m_groupBox = new GroupBox(tr("Loop Controller:"));
     mainLayout->addWidget(m_groupBox);
+
+    // initialize model for enable/disable tool
+    connect(&m_enabled, SIGNAL(dataChanged()),
+		this, SLOT(onEnableChanged()));
+    m_groupBox->setModel(&m_enabled);
 
     auto grid = new QGridLayout(m_groupBox);
     grid->setContentsMargins(5, 20, 5, 5);
@@ -178,56 +194,62 @@ LooperView::LooperView(ToolPlugin *tool) :
         this, SLOT(onLoopLengthChanged()));
     grid->addWidget(loopLength, 0, 1, Qt::AlignLeft);
 
-    // initialize model for enable/disable LED
-    connect(&m_enabled, SIGNAL(dataChanged()),
-		this, SLOT(onEnableChanged()));
-    m_groupBox->setModel(&m_enabled);
+    grid->setColumnStretch(2, 1);
+
+    // save/load settings as presets
+	auto savePresetBtn = new QPushButton(embed::getIconPixmap("project_save" ), "");
+    savePresetBtn->setToolTip(tr("Save current Looper settings to a preset file"));
+    savePresetBtn->setStyleSheet("padding: 3px");
+	connect(savePresetBtn, SIGNAL(clicked()), this, SLOT(onSavePreset()));
+	grid->addWidget(savePresetBtn, 0, 3, Qt::AlignRight);
+
+	auto loadPresetBtn = new QPushButton(embed::getIconPixmap("project_open" ), "");
+    loadPresetBtn->setStyleSheet("padding: 3px");
+    loadPresetBtn->setToolTip(tr("Load Looper settings from a preset file"));
+	connect(loadPresetBtn, SIGNAL(clicked()), this, SLOT(onLoadPreset()));
+	grid->addWidget(loadPresetBtn, 0, 4, Qt::AlignRight);
 
     // show buttons to change mappings
     auto buttonTab = new TabWidget(tr("Button Mappgings:"), m_groupBox);
     auto buttons = new QHBoxLayout(buttonTab);
-    grid->addWidget(buttonTab, 1, 0, 1, 2);
+    grid->addWidget(buttonTab, 1, 0, 1, 5);
 
-    auto playBtn = new QPushButton();
+    auto playBtn = new QPushButton(embed::getIconPixmap("play"), "");
     playBtn->setProperty("action", "play");;
-	playBtn->setIcon(embed::getIconPixmap("play"));
     playBtn->setStyleSheet("padding: 3px");
     playBtn->setToolTip(tr("Play/Stop button mapping"));
     connect(playBtn, SIGNAL(clicked()), this, SLOT(onMappingBtnClicked()));
     buttons->addWidget(playBtn);
 
-    auto recordBtn = new QPushButton();
+    auto recordBtn = new QPushButton(embed::getIconPixmap("record_accompany"), "");
     recordBtn->setProperty("action", "record");;
-	recordBtn->setIcon(embed::getIconPixmap("record_accompany"));
     recordBtn->setToolTip(tr("Start/Stop Recording button mapping"));
     recordBtn->setStyleSheet("padding: 3px");
     connect(recordBtn, SIGNAL(clicked()), this, SLOT(onMappingBtnClicked()));
     buttons->addWidget(recordBtn);
 
-    auto muteBtn = new QPushButton();
+    auto muteBtn = new QPushButton(PLUGIN_NAME::getIconPixmap("mute_current"), "");
     muteBtn->setProperty("action", "muteCurrent");;
-	muteBtn->setIcon(PLUGIN_NAME::getIconPixmap("mute_current"));
     muteBtn->setToolTip(tr("Toggle Mute Current Track button mapping"));
     muteBtn->setStyleSheet("padding: 3px");
     connect(muteBtn, SIGNAL(clicked()), this, SLOT(onMappingBtnClicked()));
     buttons->addWidget(muteBtn);
 
-    auto unmuteAllBtn = new QPushButton();
+    auto unmuteAllBtn = new QPushButton(PLUGIN_NAME::getIconPixmap("unmute_all"), "");
     unmuteAllBtn->setProperty("action", "unmuteAll");;
-	unmuteAllBtn->setIcon(PLUGIN_NAME::getIconPixmap("unmute_all"));
     unmuteAllBtn->setToolTip(tr("Unmute All Tracks button mapping"));
     unmuteAllBtn->setStyleSheet("padding: 3px");
     connect(unmuteAllBtn, SIGNAL(clicked()), this, SLOT(onMappingBtnClicked()));
     buttons->addWidget(unmuteAllBtn);
 
-    auto soloBtn = new QPushButton();
+    auto soloBtn = new QPushButton(PLUGIN_NAME::getIconPixmap("solo"), "");
     soloBtn->setProperty("action", "solo");;
-	soloBtn->setIcon(PLUGIN_NAME::getIconPixmap("solo"));
     soloBtn->setToolTip(tr("Solo Track button mapping"));
     soloBtn->setStyleSheet("padding: 3px");
     connect(soloBtn, SIGNAL(clicked()), this, SLOT(onMappingBtnClicked()));
     buttons->addWidget(soloBtn);
 
+    // add space on button holder to align content to the left
     buttons->addStretch(1);
 }
 
@@ -311,6 +333,82 @@ void LooperView::onMappingBtnClicked()
 }
 
 
+void LooperView::onSavePreset()
+{
+    FileDialog saveDialog(this, tr("Save preset"), "", tr("XML preset file (*.xpf)"));
+
+	auto presetRoot = ConfigManager::inst()->userPresetsDir();
+    auto presetDir = presetRoot + QString("Looper");
+
+    // this will create all needed dirs, and if they exist, will do nothing
+	QDir().mkpath(presetDir);
+
+	saveDialog.setAcceptMode(FileDialog::AcceptSave);
+	saveDialog.setDirectory(presetDir);
+    saveDialog.selectFile("default");
+	saveDialog.setFileMode(FileDialog::AnyFile);
+	saveDialog.setDefaultSuffix("xpf");
+
+	if (saveDialog.exec() == QDialog::Accepted &&
+	    !saveDialog.selectedFiles().isEmpty() &&
+	    !saveDialog.selectedFiles().first().isEmpty())
+	{
+        // FIXME: there is no ToolPluginSettings type (add it!)
+	    DataFile dataFile(DataFile::UnknownType);
+	    QDomElement &content(dataFile.content());
+        content.setTagName("toolplugin");
+
+        saveSettings(dataFile, content);
+
+        auto filename = saveDialog.selectedFiles()[0];
+    	dataFile.writeFile(filename);
+    }
+}
+
+
+void LooperView::onLoadPreset()
+{
+    FileDialog loadDialog(this, tr("Load preset"), "", tr("XML preset file (*.xpf)"));
+	loadDialog.setAcceptMode(FileDialog::AcceptOpen);
+	loadDialog.setFileMode(FileDialog::ExistingFile);
+	loadDialog.setDefaultSuffix("xpf");
+
+    auto presetRoot = ConfigManager::inst()->userPresetsDir();
+    auto presetDir = presetRoot + QString("Looper");
+    if (QDir(presetDir).exists()) { loadDialog.setDirectory(presetDir); }
+    else { loadDialog.setDirectory(presetRoot); }
+
+	if (loadDialog.exec() == QDialog::Accepted &&
+	    !loadDialog.selectedFiles().isEmpty() &&
+	    !loadDialog.selectedFiles().first().isEmpty())
+	{
+        // FIXME: there is no ToolPluginSettings type (add it!)
+        auto filename = loadDialog.selectedFiles()[0];
+        DataFile dataFile(filename);
+        auto document = dataFile.elementsByTagName("toolplugin");
+
+        QTextStream lTS(stdout);
+        lTS << document;
+
+        // dataFile will show an error message, no need to say anything
+        if (document.isNull())
+        {
+            QMessageBox::warning(this,
+			    tr("Load preset failed"),
+				tr("Sorry, this appears not to be a Looper preset."));
+            return;
+        }
+
+
+        // check that this preset is valid
+        // if (!document.hasAttribute("name") || document.attribute("name") != "Looper"
+
+
+        // loadSettings(dataFile.head());
+    }
+}
+
+
 void LooperView::enableLoop()
 {
     // activate loop points
@@ -364,7 +462,21 @@ void LooperView::openTrackOnPianoRoll(int trackId)
     getGUI()->pianoRoll()->setCurrentPattern(pattern);
     getGUI()->pianoRoll()->parentWidget()->show();
 	getGUI()->pianoRoll()->show();
-	getGUI()->pianoRoll()->setFocus();
+}
+
+
+void LooperView::saveSettings(QDomDocument &doc, QDomElement &element)
+{
+    element.setAttribute("name", "Looper");
+    element.setAttribute("version", LOOPER_TOOL_VERSION);
+    m_enabled.saveSettings(doc, element, "enable");
+    m_lcontrol->saveSettings(doc, element);
+}
+
+
+void LooperView::loadSettings(const QDomElement &element)
+{
+    m_lcontrol->loadSettings(element);
 }
 
 
@@ -535,4 +647,17 @@ void LooperCtrl::setMidiOnTrack(int trackId)
         }
         emit port->readablePortsChanged();
     }
+}
+
+
+void LooperCtrl::saveSettings(QDomDocument &doc, QDomElement &element)
+{
+    Q_UNUSED(doc);
+    Q_UNUSED(element);
+}
+
+
+void LooperCtrl::loadSettings(const QDomElement &element)
+{
+    Q_UNUSED(element);
 }
