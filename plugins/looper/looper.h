@@ -26,7 +26,7 @@
 #ifndef LOOPER_TOOL_H
 #define LOOPER_TOOL_H
 
-#include <memory>
+#define LOOPER_TOOL_VERSION "0.1"
 
 #include <QObject>
 #include <QSharedPointer>
@@ -39,11 +39,7 @@
 #include "ToolPluginView.h"
 
 
-class LooperCtrl;
-
-
 using MidiPortPtr = QSharedPointer<MidiPort>;
-using LooperCtrlPtr = QSharedPointer<LooperCtrl>;
 using KeyBind = QPair<int16_t, int16_t>;
 
 
@@ -75,6 +71,9 @@ private:
 	int getInstrumentTrackAt(int position);
 	void setMidiOnTrack(int trackId=-1);
 
+	void saveSettings(QDomDocument &doc, QDomElement &element);
+	void loadSettings(const QDomElement &element);
+
 	MidiPortPtr m_midiPort;
 	KeyBind m_play = {-1, -1};
 	KeyBind m_record = {-1, -1};
@@ -96,10 +95,15 @@ private slots:
 	void onLoopLengthChanged();
 	void onTrackChanged(int newTrackId);
 	void onMappingBtnClicked();
+	void onSavePreset();
+	void onLoadPreset();
 
 private:
 	void enableLoop();
 	void openTrackOnPianoRoll(int trackId=-1);
+
+	void saveSettings(QDomDocument &doc, QDomElement &element);
+	void loadSettings(const QDomElement &element);
 
 	LooperCtrl *m_lcontrol = nullptr;
 	MidiPortMenu *m_readablePorts = nullptr;
@@ -121,8 +125,8 @@ public:
 
 	virtual QString nodeName() const;
 
-	virtual void saveSettings(QDomDocument &doc, QDomElement &element);
-	virtual void loadSettings(const QDomElement &element);
+	virtual void saveSettings(QDomDocument &doc, QDomElement &element) override;
+	virtual void loadSettings(const QDomElement &element) override;
 };
 
 
