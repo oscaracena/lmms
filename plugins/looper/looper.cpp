@@ -382,29 +382,28 @@ void LooperView::onLoadPreset()
 	    !loadDialog.selectedFiles().isEmpty() &&
 	    !loadDialog.selectedFiles().first().isEmpty())
 	{
-        // FIXME: there is no ToolPluginSettings type (add it!)
         auto filename = loadDialog.selectedFiles()[0];
         DataFile dataFile(filename);
-        auto document = dataFile.elementsByTagName("toolplugin");
+        if (dataFile.head().isNull()) { return; }
 
-        QTextStream lTS(stdout);
-        lTS << document;
+        auto nodes = dataFile.elementsByTagName("toolplugin");
+        if (nodes.size() < 1) { goto invalidPreset; }
 
-        // dataFile will show an error message, no need to say anything
-        if (document.isNull())
+        auto document = nodes.at(0).toElement();
+        if (!document.hasAttribute("name") || document.attribute("name") != "Looper")
         {
-            QMessageBox::warning(this,
-			    tr("Load preset failed"),
-				tr("Sorry, this appears not to be a Looper preset."));
-            return;
+            goto invalidPreset;
         }
 
+        loadSettings(document);
+    }
+    return;
 
-        // check that this preset is valid
-        // if (!document.hasAttribute("name") || document.attribute("name") != "Looper"
-
-
-        // loadSettings(dataFile.head());
+    invalidPreset:
+    {
+        QMessageBox::warning(this,
+		    tr("Load preset failed"),
+		    tr("Sorry, this is not a valid Looper preset."));
     }
 }
 
@@ -469,6 +468,7 @@ void LooperView::saveSettings(QDomDocument &doc, QDomElement &element)
 {
     element.setAttribute("name", "Looper");
     element.setAttribute("version", LOOPER_TOOL_VERSION);
+    m_loopLength.saveSettings(doc, element, "loop-length");
     m_enabled.saveSettings(doc, element, "enable");
     m_lcontrol->saveSettings(doc, element);
 }
@@ -476,7 +476,9 @@ void LooperView::saveSettings(QDomDocument &doc, QDomElement &element)
 
 void LooperView::loadSettings(const QDomElement &element)
 {
+    m_loopLength.loadSettings(element, "loop-length");
     m_lcontrol->loadSettings(element);
+    m_enabled.loadSettings(element, "enable");
 }
 
 
@@ -652,8 +654,8 @@ void LooperCtrl::setMidiOnTrack(int trackId)
 
 void LooperCtrl::saveSettings(QDomDocument &doc, QDomElement &element)
 {
-    Q_UNUSED(doc);
-    Q_UNUSED(element);
+    auto binds = element.toDocument().createElement("keybinds");
+    element.appendChild(binds);
 }
 
 
