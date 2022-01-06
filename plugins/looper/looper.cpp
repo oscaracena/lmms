@@ -35,7 +35,7 @@
     * [OK] MIDI CC pad4: toggle 'solo' for current track
     * [OK] MIDI CC pad5: enable (unmute) all tracks
     * [OK] support custom MIDI mappings for CC controls
-    * save/load presets (load 'default' on init)
+    * [OK] save/load presets (load 'default' on init)
 
   Future features (v0.2):
     * MIDI CC pad6: clear all TCO notes of current track (press twice to confirm)
@@ -200,13 +200,13 @@ LooperView::LooperView(ToolPlugin *tool) :
 	auto savePresetBtn = new QPushButton(embed::getIconPixmap("project_save" ), "");
     savePresetBtn->setToolTip(tr("Save current Looper settings to a preset file"));
     savePresetBtn->setStyleSheet("padding: 3px");
-	connect(savePresetBtn, SIGNAL(clicked()), this, SLOT(onSavePreset()));
+	connect(savePresetBtn, SIGNAL(clicked()), this, SLOT(onSavePresetClicked()));
 	grid->addWidget(savePresetBtn, 0, 3, Qt::AlignRight);
 
 	auto loadPresetBtn = new QPushButton(embed::getIconPixmap("project_open" ), "");
     loadPresetBtn->setStyleSheet("padding: 3px");
     loadPresetBtn->setToolTip(tr("Load Looper settings from a preset file"));
-	connect(loadPresetBtn, SIGNAL(clicked()), this, SLOT(onLoadPreset()));
+	connect(loadPresetBtn, SIGNAL(clicked()), this, SLOT(onLoadPresetClicked()));
 	grid->addWidget(loadPresetBtn, 0, 4, Qt::AlignRight);
 
     // show buttons to change mappings
@@ -251,11 +251,30 @@ LooperView::LooperView(ToolPlugin *tool) :
 
     // add space on button holder to align content to the left
     buttons->addStretch(1);
+
+    // lastly, create the looper controller
+    m_lcontrol = ::new LooperCtrl();
+    connect(m_lcontrol, SIGNAL(trackChanged(int)), this, SLOT(onTrackChanged(int)));
+
+    // and load default preset, if exists
+    auto defaultPreset = ConfigManager::inst()->userPresetsDir() + "Looper/default.xpf";
+    if (QFile(defaultPreset).exists())
+    {
+       if (!loadPreset(defaultPreset))
+       {
+            qWarning("Looper: could not load default preset! (invalid file)");
+       }
+    }
 }
 
 
 LooperView::~LooperView()
 {
+    if (m_lcontrol)
+    {
+        ::delete m_lcontrol;
+        m_lcontrol = nullptr;
+    }
 }
 
 
@@ -263,13 +282,6 @@ void LooperView::onEnableChanged()
 {
     if (m_enabled.value())
     {
-        if (!m_lcontrol)
-        {
-            m_lcontrol = ::new LooperCtrl();
-            connect(m_lcontrol, SIGNAL(trackChanged(int)),
-                this, SLOT(onTrackChanged(int)));
-        }
-
         m_lcontrol->m_midiPort->setMode(MidiPort::Input);
         if (m_readablePorts)
         {
@@ -294,8 +306,7 @@ void LooperView::onEnableChanged()
 
 void LooperView::onLoopLengthChanged()
 {
-    if (!m_enabled.value()) { return; }
-    enableLoop();
+    if (m_enabled.value()) { enableLoop(); }
 }
 
 
@@ -333,7 +344,7 @@ void LooperView::onMappingBtnClicked()
 }
 
 
-void LooperView::onSavePreset()
+void LooperView::onSavePresetClicked()
 {
     FileDialog saveDialog(this, tr("Save preset"), "", tr("XML preset file (*.xpf)"));
 
@@ -366,7 +377,7 @@ void LooperView::onSavePreset()
 }
 
 
-void LooperView::onLoadPreset()
+void LooperView::onLoadPresetClicked()
 {
     FileDialog loadDialog(this, tr("Load preset"), "", tr("XML preset file (*.xpf)"));
 	loadDialog.setAcceptMode(FileDialog::AcceptOpen);
@@ -383,28 +394,38 @@ void LooperView::onLoadPreset()
 	    !loadDialog.selectedFiles().first().isEmpty())
 	{
         auto filename = loadDialog.selectedFiles()[0];
-        DataFile dataFile(filename);
-        if (dataFile.head().isNull()) { return; }
-
-        auto nodes = dataFile.elementsByTagName("toolplugin");
-        if (nodes.size() < 1) { goto invalidPreset; }
-
-        auto document = nodes.at(0).toElement();
-        if (!document.hasAttribute("name") || document.attribute("name") != "Looper")
+        if (!loadPreset(filename))
         {
-            goto invalidPreset;
+            QMessageBox::warning(this,
+		        tr("Load preset failed"),
+		        tr("Sorry, this is not a valid Looper preset."));
         }
-
-        loadSettings(document);
     }
-    return;
+}
 
-    invalidPreset:
+
+bool LooperView::loadPreset(QString path)
+{
+    DataFile dataFile(path);
+    if (dataFile.head().isNull())
     {
-        QMessageBox::warning(this,
-		    tr("Load preset failed"),
-		    tr("Sorry, this is not a valid Looper preset."));
+        return false;
     }
+
+    auto nodes = dataFile.elementsByTagName("toolplugin");
+    if (nodes.size() < 1)
+    {
+        return false;
+    }
+
+    auto document = nodes.at(0).toElement();
+    if (!document.hasAttribute("name") || document.attribute("name") != "Looper")
+    {
+        return false;
+    }
+
+    loadSettings(document);
+    return true;
 }
 
 
@@ -509,8 +530,8 @@ LooperCtrl::LooperCtrl()
 }
 
 
-LooperCtrl::~LooperCtrl()
-{
+LooperCtrl::~LooperCtrl(){
+
     qInfo("Looper: controller destroyed");
 }
 
@@ -643,7 +664,7 @@ void LooperCtrl::setMidiOnTrack(int trackId)
         auto port = track->midiPort();
         auto inputs = port->readablePorts();
 
-        for (auto it = inputs.constBegin(); it != inputs.constEnd(); it++)
+        for (auto it = inputs.constBegin(); it != inputs.constEnd (); it++)
         {
             port->subscribeReadablePort(it.key(), false);
         }
@@ -654,12 +675,101 @@ void LooperCtrl::setMidiOnTrack(int trackId)
 
 void LooperCtrl::saveSettings(QDomDocument &doc, QDomElement &element)
 {
-    auto binds = element.toDocument().createElement("keybinds");
-    element.appendChild(binds);
+    // save key bindings
+    auto keybinds = doc.createElement("keybinds");
+    element.appendChild(keybinds);
+
+    QMap<QString, KeyBind> keys =
+    {
+        {"play", m_play},
+        {"record", m_record},
+        {"muteCurrent", m_muteCurrent},
+        {"unmuteAll", m_unmuteAll},
+        {"solo", m_solo}
+    };
+
+    auto it = keys.constBegin();
+    while (it != keys.constEnd())
+    {
+        auto key = doc.createElement("key");
+        key.setAttribute("name", it.key());
+        key.setAttribute("channel", QString::number(it.value().first));
+        key.setAttribute("control", QString::number(it.value().second));
+        keybinds.appendChild(key);
+        it++;
+    }
+
+    // save midi input list
+    // FIXME: add support for raw clients
+    if (!Engine::audioEngine()->midiClient()->isRaw())
+    {
+        auto midi = doc.createElement("midi");
+        element.appendChild(midi);
+
+        auto mports = m_midiPort->readablePorts();
+        for (auto it = mports.constBegin(); it != mports.constEnd(); it++)
+        {
+            if (it.value()) {
+                auto input = doc.createElement("input");
+                input.setAttribute("name", it.key());
+                input.setAttribute("enabled", "1");
+                midi.appendChild(input);
+            }
+        }
+    }
 }
 
 
 void LooperCtrl::loadSettings(const QDomElement &element)
 {
-    Q_UNUSED(element);
+    // load key bindings
+    QMap<QString, KeyBind*> keys =
+    {
+        {"play", &m_play},
+        {"record", &m_record},
+        {"muteCurrent", &m_muteCurrent},
+        {"unmuteAll", &m_unmuteAll},
+        {"solo", &m_solo}
+    };
+
+    auto keybinds = element.firstChildElement("keybinds");
+	if (!keybinds.isNull())
+    {
+        auto binds = keybinds.childNodes();
+        for (int i = 0; i < binds.size(); i++)
+        {
+            auto bind = binds.at(i).toElement();
+            auto it = keys.find(bind.attribute("name"));
+            if (it != keys.end())
+            {
+                it.value()->first = bind.attribute("channel", "-1").toInt();
+                it.value()->second = bind.attribute("control", "-1").toInt();
+            }
+        }
+    }
+
+    // load midi input list
+    // FIXME: add support for raw clients
+    if (!Engine::audioEngine()->midiClient()->isRaw())
+    {
+        auto midi = element.firstChildElement("midi");
+        if (!midi.isNull())
+        {
+            auto mports = m_midiPort->readablePorts();
+            auto inputs = midi.childNodes();
+
+            // get list of enabled inputs
+            QList<QString> enabled;
+            for (int i = 0; i < inputs.size(); i++)
+            {
+                enabled.append(inputs.at(i).toElement().attribute("name"));
+            }
+
+            // enable only those inputs that were defined in preset
+            for (auto it = mports.constBegin(); it != mports.constEnd(); it++)
+            {
+                m_midiPort->subscribeReadablePort(it.key(), enabled.contains(it.key()));
+            }
+        }
+    }
 }
