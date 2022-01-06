@@ -95,12 +95,13 @@ private slots:
 	void onLoopLengthChanged();
 	void onTrackChanged(int newTrackId);
 	void onMappingBtnClicked();
-	void onSavePreset();
-	void onLoadPreset();
+	void onSavePresetClicked();
+	void onLoadPresetClicked();
 
 private:
 	void enableLoop();
 	void openTrackOnPianoRoll(int trackId=-1);
+	bool loadPreset(QString path);
 
 	void saveSettings(QDomDocument &doc, QDomElement &element);
 	void loadSettings(const QDomElement &element);

@@ -2,5 +2,5 @@
 <!DOCTYPE lmms-project>
 <lmms-project version="21" type="unknown" creator="LMMS" creatorversion="1.3.0-alpha.1.167+gac9dd9b0c">
   <head/>
-  <otracosa version="0.1" enable="0" name="Looper"/>
+  <otherThing version="0.1" enable="0" name="Looper"/>
 </lmms-project>
