@@ -143,7 +143,7 @@ LooperView::LooperView(ToolPlugin *tool) :
 {
     // widget is initially hidden
     auto parent = parentWidget();
-    // parent->hide();
+    parent->hide();
 
     // set some size related properties
     parent->resize(300, 190);
@@ -497,9 +497,9 @@ void LooperView::saveSettings(QDomDocument &doc, QDomElement &element)
 
 void LooperView::loadSettings(const QDomElement &element)
 {
+    m_enabled.loadSettings(element, "enable");
     m_loopLength.loadSettings(element, "loop-length");
     m_lcontrol->loadSettings(element);
-    m_enabled.loadSettings(element, "enable");
 }
 
 
