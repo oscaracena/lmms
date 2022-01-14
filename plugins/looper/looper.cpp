@@ -25,15 +25,9 @@
 /*
   Expected features (v0.1):
     * [OK] set and control loop duration
-<<<<<<< HEAD
     * [OK] add an empty Clip on start of each track (if not exist)
     * [OK] open first Clip of choosen track on piano-roll (show piano-roll if hidden)
     * [OK] MIDI PC: view current track (first Clip) on piano-roll
-=======
-    * [OK] add an empty TCO on start of each track (if not exist)
-    * [OK] open first TCO of choosen track on piano-roll (show piano-roll if hidden)
-    * [OK] MIDI PC: view current track (first TCO) on piano-roll
->>>>>>> 22ee0b34a91ed6ba24b23433cdaf46a308b589f1
     * [OK] MIDI PC: set MIDI input to only current track
     * [OK] MIDI CC pad1: start/stop playing (on song editor)
     * [OK] MIDI CC pad2: start/stop record (on piano-roll)
@@ -44,21 +38,12 @@
     * [OK] save/load presets (load 'default' on init)
 
   Future features (v0.2):
-<<<<<<< HEAD
     * MIDI CC pad6: clear all Clip notes of current track (press twice to confirm)
     * control launch-Q (determine when a track will mute/unmute itself)
     * add dynamic automations for tracks
     * wait start recording until first note comes
     * support for Clip colors (no controlled, random, fixed)
     * support for multiple Clips per track (move Clip outside the loop, and create new)
-=======
-    * MIDI CC pad6: clear all TCO notes of current track (press twice to confirm)
-    * control launch-Q (determine when a track will mute/unmute itself)
-    * add dynamic automations for tracks
-    * wait start recording until first note comes
-    * support for TCO colors (no controlled, random, fixed)
-    * support for multiple TCOs per track (move TCO outside the loop, and create new)
->>>>>>> 22ee0b34a91ed6ba24b23433cdaf46a308b589f1
     * change between play and record seamlessly (no stop playing)
     * start/stop recording within the quantization (at start of next loop iter)
     * handle "Sample" tracks
@@ -91,11 +76,7 @@
 #include "Song.h"
 #include "TimeLineWidget.h"
 #include "ToolButton.h"
-<<<<<<< HEAD
 #include "Clip.h"
-=======
-#include "TrackContentObject.h"
->>>>>>> 22ee0b34a91ed6ba24b23433cdaf46a308b589f1
 
 
 extern "C"
@@ -467,11 +448,7 @@ void LooperView::enableLoop()
 
 void LooperView::openTrackOnPianoRoll(int trackId)
 {
-<<<<<<< HEAD
     // open first Clip of choosen track on piano-roll (show piano-roll if hidden)
-=======
-    // open first TCO of choosen track on piano-roll (show piano-roll if hidden)
->>>>>>> 22ee0b34a91ed6ba24b23433cdaf46a308b589f1
     auto tracks = Engine::getSong()->tracks();
 
     // if track is not given, search for the first instrument track (if any)
@@ -482,7 +459,6 @@ void LooperView::openTrackOnPianoRoll(int trackId)
     }
     Track *track = tracks.at(trackId);
 
-<<<<<<< HEAD
     // get Clip at pos 0 (not first Clip!)
     MidiClip *midiclip = nullptr;
     auto clips = track->getClips();
@@ -504,29 +480,6 @@ void LooperView::openTrackOnPianoRoll(int trackId)
     }
 
     getGUI()->pianoRoll()->setCurrentMidiClip(midiclip);
-=======
-    // get TCO at pos 0 (not first TCO!)
-    Pattern *pattern = nullptr;
-    auto tcos = track->getTCOs();
-    for (int i=0; i<tcos.size(); i++)
-    {
-        auto tco = tcos.at(i);
-        if (tco->startPosition() == 0)
-        {
-            pattern = dynamic_cast<Pattern*>(tco);
-        }
-    }
-
-    // if not pattern, there is no TCO at pos 0, create it
-    if (!pattern)
-    {
-        auto tco = track->createTCO(0);
-        tco->setName(QString("looper-track-%1").arg(trackId));
-        pattern = dynamic_cast<Pattern*>(tco);
-    }
-
-    getGUI()->pianoRoll()->setCurrentPattern(pattern);
->>>>>>> 22ee0b34a91ed6ba24b23433cdaf46a308b589f1
     getGUI()->pianoRoll()->parentWidget()->show();
 	getGUI()->pianoRoll()->show();
 }
@@ -619,15 +572,9 @@ void LooperCtrl::processInEvent(
 
         else if (ev.channel() == m_muteCurrent.first && ev.key() == m_muteCurrent.second)
         {
-<<<<<<< HEAD
             auto clip = pianoRoll->currentMidiClip();
             if (!clip) { return; }
             auto track = clip->getTrack();
-=======
-            auto tco = pianoRoll->currentPattern();
-            if (!tco) { return; }
-            auto track = tco->getTrack();
->>>>>>> 22ee0b34a91ed6ba24b23433cdaf46a308b589f1
             track->setMuted(!track->isMuted());
         }
 
@@ -644,15 +591,9 @@ void LooperCtrl::processInEvent(
 
         else if (ev.channel() == m_solo.first && ev.key() == m_solo.second)
         {
-<<<<<<< HEAD
             auto clip = pianoRoll->currentMidiClip();
             if (!clip) { return; }
             auto track = clip->getTrack();
-=======
-            auto tco = pianoRoll->currentPattern();
-            if (!tco) { return; }
-            auto track = tco->getTrack();
->>>>>>> 22ee0b34a91ed6ba24b23433cdaf46a308b589f1
             track->setSolo(!track->isSolo());
         }
     }
