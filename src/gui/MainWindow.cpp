@@ -1174,10 +1174,10 @@ void MainWindow::updateViewMenu()
 		);
 
 	m_viewMenu->addSeparator();
-	
+
 	m_viewMenu->addAction(embed::getIconPixmap( "fullscreen" ),
 				tr( "Fullscreen" ) + "\tF11",
-				this, SLOT( toggleFullscreen() ) 
+				this, SLOT( toggleFullscreen() )
 		);
 
 	m_viewMenu->addSeparator();

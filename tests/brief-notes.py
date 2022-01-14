@@ -3,7 +3,7 @@
 import mido
 import time
 
-note = 37
+note = 69
 port = mido.open_output(name="TEST", virtual=True)
 on = mido.Message("note_on", note=note, velocity=127)
 off = mido.Message("note_off", note=note, velocity=0)

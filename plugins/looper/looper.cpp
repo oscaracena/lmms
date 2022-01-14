@@ -252,18 +252,18 @@ LooperView::LooperView(ToolPlugin *tool) :
     // add space on button holder to align content to the left
     buttons->addStretch(1);
 
-    // lastly, create the looper controller
+    // create the looper controller
     m_lcontrol = ::new LooperCtrl();
     connect(m_lcontrol, SIGNAL(trackChanged(int)), this, SLOT(onTrackChanged(int)));
 
-    // and load default preset, if exists
+    // load default preset, if exists
     auto defaultPreset = ConfigManager::inst()->userPresetsDir() + "Looper/default.xpf";
     if (QFile(defaultPreset).exists())
     {
-       if (!loadPreset(defaultPreset))
-       {
+        if (!loadPreset(defaultPreset))
+        {
             qWarning("Looper: could not load default preset! (invalid file)");
-       }
+        }
     }
 }
 
@@ -489,6 +489,12 @@ void LooperView::saveSettings(QDomDocument &doc, QDomElement &element)
 {
     element.setAttribute("name", "Looper");
     element.setAttribute("version", LOOPER_TOOL_VERSION);
+
+    // FIXME: enable this line when saving project only
+    element.setAttribute("visible", parentWidget()->isVisible());
+    element.setAttribute("x", parentWidget()->pos().x());
+    element.setAttribute("y", parentWidget()->pos().y());
+
     m_loopLength.saveSettings(doc, element, "loop-length");
     m_enabled.saveSettings(doc, element, "enable");
     m_lcontrol->saveSettings(doc, element);
@@ -497,9 +503,19 @@ void LooperView::saveSettings(QDomDocument &doc, QDomElement &element)
 
 void LooperView::loadSettings(const QDomElement &element)
 {
-    m_enabled.loadSettings(element, "enable");
     m_loopLength.loadSettings(element, "loop-length");
     m_lcontrol->loadSettings(element);
+    m_enabled.loadSettings(element, "enable");
+
+    // move window to saved position
+    auto x = element.attribute("x", "0").toInt();
+    auto y = element.attribute("y", "0").toInt();
+    parentWidget()->move(x, y);
+
+    if (element.attribute("visible", "0").toInt())
+    {
+        parentWidget()->show();
+    }
 }
 
 
