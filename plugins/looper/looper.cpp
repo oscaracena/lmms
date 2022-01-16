@@ -37,25 +37,27 @@
     * [OK] support custom MIDI mappings for CC controls
     * [OK] save/load presets (load 'default' on init)
 
-  Future features (v0.2):
+  Expected features (v0.2):
+    * record for one single loop iteration (play afterwards)
     * MIDI CC pad6: clear all Clip notes of current track (press twice to confirm)
     * control launch-Q (determine when a track will mute/unmute itself)
-    * add dynamic automations for tracks
     * wait start recording until first note comes
     * support for Clip colors (no controlled, random, fixed)
-    * support for multiple Clips per track (move Clip outside the loop, and create new)
+    *  - green: normal, red: recording, orange: queued for action (play/record)
     * change between play and record seamlessly (no stop playing)
+    * set individual loop size for each track
+    * on stop recording, copy smaller clips to cover larger ones
     * start/stop recording within the quantization (at start of next loop iter)
+
+  Expected features (v0.3):
+    * add dynamic automations for tracks
+    * support for multiple Clips per track (move Clip outside the loop, and create new)
     * handle "Sample" tracks
 */
 
 
 #include "looper.h"
 #include "MidiConnectionDialog.h"
-
-// DEVEL helpers
-#include <iostream>
-#include <QTextStream>
 
 #include <QMdiSubWindow>
 #include <QMessageBox>
@@ -546,8 +548,8 @@ LooperCtrl::LooperCtrl()
 }
 
 
-LooperCtrl::~LooperCtrl(){
-
+LooperCtrl::~LooperCtrl()
+{
     qInfo("Looper: controller destroyed");
 }
 
@@ -572,20 +574,29 @@ void LooperCtrl::processInEvent(
         if (ev.velocity() == 0) { return; }
         auto pianoRoll = getGUI()->pianoRoll();
 
+        // play action
         if (ev.channel() == m_play.first && ev.key() == m_play.second)
         {
             auto song = Engine::getSong();
             if (pianoRoll->isRecording()) { pianoRoll->stop(); }
             else if (song->isPlaying()) { song->stop(); }
             else { song->playSong(); }
+
+            // this signal is emitted by Song on enforceLoop lambda (if loop is reset)
+            // and also by setPlayPos, which is used when left, right or home keys are pressed
+            connect(song, &Song::updateSampleTracks, this, [this]() {
+                qInfo("loop reset, stop it");
+            });
         }
 
+        // record action
         else if (ev.channel() == m_record.first && ev.key() == m_record.second)
         {
             if (pianoRoll->isRecording()) { pianoRoll->stop(); }
             else { pianoRoll->recordAccompany(); }
         }
 
+        // mute current track action
         else if (ev.channel() == m_muteCurrent.first && ev.key() == m_muteCurrent.second)
         {
             auto clip = pianoRoll->currentMidiClip();
@@ -594,6 +605,7 @@ void LooperCtrl::processInEvent(
             track->setMuted(!track->isMuted());
         }
 
+        // unmute all tracks
         else if (ev.channel() == m_unmuteAll.first && ev.key() == m_unmuteAll.second)
         {
             auto tracks = Engine::getSong()->tracks();
@@ -605,6 +617,7 @@ void LooperCtrl::processInEvent(
             }
         }
 
+        // set solo on current track
         else if (ev.channel() == m_solo.first && ev.key() == m_solo.second)
         {
             auto clip = pianoRoll->currentMidiClip();

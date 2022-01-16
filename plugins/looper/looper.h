@@ -26,7 +26,7 @@
 #ifndef LOOPER_TOOL_H
 #define LOOPER_TOOL_H
 
-#define LOOPER_TOOL_VERSION "0.1"
+#define LOOPER_TOOL_VERSION "0.2"
 
 #include <QObject>
 #include <QSharedPointer>
