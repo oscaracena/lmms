@@ -62,12 +62,15 @@ public:
 
 signals:
 	void trackChanged(int newTrackId);
-	void togglePlay();
-	void toggleRecord();
+
+private slots:
+	void onRecordLoopFinished();
 
 private:
 	friend class LooperView;
 
+	void togglePlay();
+	void toggleRecord();
 	int getInstrumentTrackAt(int position);
 	void setMidiOnTrack(int trackId=-1);
 
@@ -80,6 +83,7 @@ private:
 	KeyBind m_muteCurrent = {-1, -1};
 	KeyBind m_unmuteAll = {-1, -1};
 	KeyBind m_solo = {-1, -1};
+	KeyBind m_clearNotes = {-1, -1};
 };
 
 

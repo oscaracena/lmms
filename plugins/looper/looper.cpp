@@ -38,8 +38,8 @@
     * [OK] save/load presets (load 'default' on init)
 
   Expected features (v0.2):
-    * record for one single loop iteration (play afterwards)
-    * MIDI CC pad6: clear all Clip notes of current track (press twice to confirm)
+    * [OK] record for one single loop iteration (keep playing afterwards)
+    * [OK] MIDI CC pad6: clear all Clip notes of current track (press twice to confirm)
     * control launch-Q (determine when a track will mute/unmute itself)
     * wait start recording until first note comes
     * support for Clip colors (no controlled, random, fixed)
@@ -163,8 +163,7 @@ LooperView::LooperView(ToolPlugin *tool) :
     mainLayout->addWidget(m_groupBox);
 
     // initialize model for enable/disable tool
-    connect(&m_enabled, SIGNAL(dataChanged()),
-		this, SLOT(onEnableChanged()));
+    connect(&m_enabled, SIGNAL(dataChanged()), this, SLOT(onEnableChanged()));
     m_groupBox->setModel(&m_enabled);
 
     auto grid = new QGridLayout(m_groupBox);
@@ -192,8 +191,7 @@ LooperView::LooperView(ToolPlugin *tool) :
 	loopLength->setLabel(tr("LENGTH"));
 	loopLength->setToolTip(tr("Select the loop length (in bars)"));
 	loopLength->setModel(&m_loopLength);
-    connect(&m_loopLength, SIGNAL(dataChanged()),
-        this, SLOT(onLoopLengthChanged()));
+    connect(&m_loopLength, SIGNAL(dataChanged()), this, SLOT(onLoopLengthChanged()));
     grid->addWidget(loopLength, 0, 1, Qt::AlignLeft);
 
     grid->setColumnStretch(2, 1);
@@ -250,6 +248,13 @@ LooperView::LooperView(ToolPlugin *tool) :
     soloBtn->setStyleSheet("padding: 3px");
     connect(soloBtn, SIGNAL(clicked()), this, SLOT(onMappingBtnClicked()));
     buttons->addWidget(soloBtn);
+
+    auto clearBtn = new QPushButton(embed::getIconPixmap("edit_erase"), "");
+    clearBtn->setProperty("action", "clearNotes");
+    clearBtn->setToolTip(tr("Clear Track button mapping"));
+    clearBtn->setStyleSheet("padding: 3px");
+    connect(clearBtn, SIGNAL(clicked()), this, SLOT(onMappingBtnClicked()));
+    buttons->addWidget(clearBtn);
 
     // add space on button holder to align content to the left
     buttons->addStretch(1);
@@ -330,6 +335,7 @@ void LooperView::onMappingBtnClicked()
     else if (action == "muteCurrent") { def = m_lcontrol->m_muteCurrent; }
     else if (action == "unmuteAll")   { def = m_lcontrol->m_unmuteAll; }
     else if (action == "solo")        { def = m_lcontrol->m_solo; }
+    else if (action == "clearNotes")  { def = m_lcontrol->m_clearNotes; }
 
     MidiConnectionDialog dialog(
         getGUI()->mainWindow(), m_lcontrol->m_midiPort.get(),
@@ -338,11 +344,12 @@ void LooperView::onMappingBtnClicked()
 
     auto selected = dialog.getSelection();
 
-    if (action == "play") { m_lcontrol->m_play = selected; }
-    else if (action == "record") { m_lcontrol->m_record = selected; }
+    if (action == "play")             { m_lcontrol->m_play = selected; }
+    else if (action == "record")      { m_lcontrol->m_record = selected; }
     else if (action == "muteCurrent") { m_lcontrol->m_muteCurrent = selected; }
-    else if (action == "unmuteAll") { m_lcontrol->m_unmuteAll = selected; }
-    else if (action == "solo") { m_lcontrol->m_solo = selected; }
+    else if (action == "unmuteAll")   { m_lcontrol->m_unmuteAll = selected; }
+    else if (action == "solo")        { m_lcontrol->m_solo = selected; }
+    else if (action == "clearNotes")  { m_lcontrol->m_clearNotes = selected; }
 }
 
 
@@ -577,23 +584,13 @@ void LooperCtrl::processInEvent(
         // play action
         if (ev.channel() == m_play.first && ev.key() == m_play.second)
         {
-            auto song = Engine::getSong();
-            if (pianoRoll->isRecording()) { pianoRoll->stop(); }
-            else if (song->isPlaying()) { song->stop(); }
-            else { song->playSong(); }
-
-            // this signal is emitted by Song on enforceLoop lambda (if loop is reset)
-            // and also by setPlayPos, which is used when left, right or home keys are pressed
-            connect(song, &Song::updateSampleTracks, this, [this]() {
-                qInfo("loop reset, stop it");
-            });
+            togglePlay();
         }
 
         // record action
         else if (ev.channel() == m_record.first && ev.key() == m_record.second)
         {
-            if (pianoRoll->isRecording()) { pianoRoll->stop(); }
-            else { pianoRoll->recordAccompany(); }
+            toggleRecord();
         }
 
         // mute current track action
@@ -625,7 +622,79 @@ void LooperCtrl::processInEvent(
             auto track = clip->getTrack();
             track->setSolo(!track->isSolo());
         }
+
+        // clear all notes of current track
+        else if (ev.channel() == m_clearNotes.first && ev.key() == m_clearNotes.second)
+        {
+            auto clip = pianoRoll->currentMidiClip();
+            if (!clip) { return; }
+            ((MidiClip*)clip)->clearNotes();
+        }
     }
+}
+
+
+void LooperCtrl::onRecordLoopFinished()
+{
+    // stop recording but keep playing
+    auto song = Engine::getSong();
+    auto pianoRoll = getGUI()->pianoRoll();
+
+    pianoRoll->stopRecording();
+    disconnect(song, SIGNAL(updateSampleTracks()),
+        this, SLOT(onRecordLoopFinished()));
+    qInfo("loop reset, stop it");
+}
+
+
+// intended behaviour for play and record buttons:
+//
+// ------\ State   recording       playing        idle
+// Action \-----   ----------------------------------------------------
+// - play btn      stop-record     stop           play
+// - record btn    stop-record     start-record   start play & record
+
+void LooperCtrl::togglePlay()
+{
+    auto song = Engine::getSong();
+    auto pianoRoll = getGUI()->pianoRoll();
+
+    if (pianoRoll->isRecording()) { toggleRecord(); }
+    else if (song->isPlaying()) { song->stop(); }
+    else { song->playSong(); }
+}
+
+
+void LooperCtrl::toggleRecord()
+{
+    // note: 'updateSampleTracks' is emitted by Song on enforceLoop lambda (if
+    // loop is reset) and also by setPlayPos, which is used when left, right
+    // or home keys are pressed
+
+    auto song = Engine::getSong();
+    auto pianoRoll = getGUI()->pianoRoll();
+
+    if (pianoRoll->isRecording())
+    {
+        pianoRoll->stopRecording();
+        disconnect(song, SIGNAL(updateSampleTracks()),
+            this, SLOT(onRecordLoopFinished()));
+        return;
+    }
+
+    if (song->isPlaying())
+    {
+        // FIXME: use quantization to start recording on next loop-start
+        pianoRoll->recordAccompany();
+    }
+    else
+    {
+        pianoRoll->recordAccompany();
+    }
+
+    connect(
+        song, SIGNAL(updateSampleTracks()),
+        this, SLOT(onRecordLoopFinished()));
 }
 
 
@@ -714,7 +783,8 @@ void LooperCtrl::saveSettings(QDomDocument &doc, QDomElement &element)
         {"record", m_record},
         {"muteCurrent", m_muteCurrent},
         {"unmuteAll", m_unmuteAll},
-        {"solo", m_solo}
+        {"solo", m_solo},
+        {"clearNotes", m_clearNotes}
     };
 
     auto it = keys.constBegin();
@@ -758,7 +828,8 @@ void LooperCtrl::loadSettings(const QDomElement &element)
         {"record", &m_record},
         {"muteCurrent", &m_muteCurrent},
         {"unmuteAll", &m_unmuteAll},
-        {"solo", &m_solo}
+        {"solo", &m_solo},
+        {"clearNotes", &m_clearNotes}
     };
 
     auto keybinds = element.firstChildElement("keybinds");
