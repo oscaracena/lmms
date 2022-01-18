@@ -46,7 +46,7 @@
     *  - green: normal, red: recording, orange: queued for action (play/record)
     * change between play and record seamlessly (no stop playing)
     * set individual loop size for each track
-    * on stop recording, copy smaller clips to cover larger ones
+    * on end recording clip, clone it to cover the largest one
     * start/stop recording within the quantization (at start of next loop iter)
 
   Expected features (v0.3):
@@ -636,6 +636,8 @@ void LooperCtrl::processInEvent(
 
 void LooperCtrl::onRecordLoopFinished()
 {
+    qInfo("record loop finished:");
+
     // stop recording but keep playing
     auto song = Engine::getSong();
     auto pianoRoll = getGUI()->pianoRoll();
@@ -643,7 +645,25 @@ void LooperCtrl::onRecordLoopFinished()
     pianoRoll->stopRecording();
     disconnect(song, SIGNAL(updateSampleTracks()),
         this, SLOT(onRecordLoopFinished()));
-    qInfo("loop reset, stop it");
+    qInfo(" - dis-connect: record loop finished");
+}
+
+
+void LooperCtrl::onQueueRecord()
+{
+    qInfo("record queued:");
+
+    auto song = Engine::getSong();
+    auto pianoRoll = getGUI()->pianoRoll();
+
+    disconnect(song, SIGNAL(updateSampleTracks()),
+        this, SLOT(onQueueRecord()));
+    qInfo(" - dis-connect: on queue record");
+
+    pianoRoll->recordAccompany();
+    connect(song, SIGNAL(updateSampleTracks()),
+        this, SLOT(onRecordLoopFinished()));
+    qInfo(" - connect: on record loop finished");
 }
 
 
@@ -656,12 +676,14 @@ void LooperCtrl::onRecordLoopFinished()
 
 void LooperCtrl::togglePlay()
 {
+    qInfo("toggle play:");
+
     auto song = Engine::getSong();
     auto pianoRoll = getGUI()->pianoRoll();
 
-    if (pianoRoll->isRecording()) { toggleRecord(); }
-    else if (song->isPlaying()) { song->stop(); }
-    else { song->playSong(); }
+    if (pianoRoll->isRecording()) { qInfo(" - is recording, toggle record"); toggleRecord(); }
+    else if (song->isPlaying()) { qInfo(" - is playing, stop play"); song->stop(); }
+    else { qInfo(" - is idle, start play"); song->playSong(); }
 }
 
 
@@ -670,31 +692,36 @@ void LooperCtrl::toggleRecord()
     // note: 'updateSampleTracks' is emitted by Song on enforceLoop lambda (if
     // loop is reset) and also by setPlayPos, which is used when left, right
     // or home keys are pressed
+    qInfo("toggle record:");
 
     auto song = Engine::getSong();
     auto pianoRoll = getGUI()->pianoRoll();
 
     if (pianoRoll->isRecording())
     {
+        qInfo(" - is recording, stop recording");
         pianoRoll->stopRecording();
         disconnect(song, SIGNAL(updateSampleTracks()),
             this, SLOT(onRecordLoopFinished()));
-        return;
+        qInfo(" - dis-connect: on record loop finished");
     }
 
-    if (song->isPlaying())
+    else if (song->isPlaying())
     {
-        // FIXME: use quantization to start recording on next loop-start
-        pianoRoll->recordAccompany();
+        // start recording on next loop reset
+        qInfo(" - is playing");
+        connect(song, SIGNAL(updateSampleTracks()),
+            this, SLOT(onQueueRecord()));
+        qInfo(" - connect: on queue record");
     }
     else
     {
+        qInfo(" - is idle, record accompany");
         pianoRoll->recordAccompany();
+        connect(song, SIGNAL(updateSampleTracks()),
+            this, SLOT(onRecordLoopFinished()));
+        qInfo(" - connect: on record loop finished");
     }
-
-    connect(
-        song, SIGNAL(updateSampleTracks()),
-        this, SLOT(onRecordLoopFinished()));
 }
 
 

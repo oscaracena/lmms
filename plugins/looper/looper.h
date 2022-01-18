@@ -65,6 +65,7 @@ signals:
 
 private slots:
 	void onRecordLoopFinished();
+	void onQueueRecord();
 
 private:
 	friend class LooperView;
