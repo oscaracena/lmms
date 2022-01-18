@@ -40,14 +40,14 @@
   Expected features (v0.2):
     * [OK] record for one single loop iteration (keep playing afterwards)
     * [OK] MIDI CC pad6: clear all Clip notes of current track (press twice to confirm)
-    * control launch-Q (determine when a track will mute/unmute itself)
+    * [OK] start/stop recording within quantization (at start of next loop iter)
+    * [OK] change between play and record seamlessly (no stop playing)
+    * mute/unmute within quantization (at start of next loop iter)
     * wait start recording until first note comes
     * support for Clip colors (no controlled, random, fixed)
     *  - green: normal, red: recording, orange: queued for action (play/record)
-    * change between play and record seamlessly (no stop playing)
     * set individual loop size for each track
     * on end recording clip, clone it to cover the largest one
-    * start/stop recording within the quantization (at start of next loop iter)
 
   Expected features (v0.3):
     * add dynamic automations for tracks
@@ -272,6 +272,10 @@ LooperView::LooperView(ToolPlugin *tool) :
             qWarning("Looper: could not load default preset! (invalid file)");
         }
     }
+
+    // connect a callback to handle actions on loop restart
+    auto song = Engine::getSong();
+    connect(song, SIGNAL(updateSampleTracks()), this, SLOT(onLoopRestart()));
 }
 
 
@@ -551,6 +555,10 @@ LooperCtrl::LooperCtrl()
 	    }
     }
 
+    // connect a callback to handle actions on loop restart
+    auto song = Engine::getSong();
+    connect(song, SIGNAL(updateSampleTracks()), this, SLOT(onLoopRestart()));
+
     qInfo("Looper: controller created");
 }
 
@@ -596,10 +604,9 @@ void LooperCtrl::processInEvent(
         // mute current track action
         else if (ev.channel() == m_muteCurrent.first && ev.key() == m_muteCurrent.second)
         {
-            auto clip = pianoRoll->currentMidiClip();
-            if (!clip) { return; }
-            auto track = clip->getTrack();
-            track->setMuted(!track->isMuted());
+            if (m_pendingAction < ProtectedAction) {
+                m_pendingAction = ToggleMuteTrack;
+            }
         }
 
         // unmute all tracks
@@ -633,37 +640,43 @@ void LooperCtrl::processInEvent(
     }
 }
 
-
-void LooperCtrl::onRecordLoopFinished()
+void LooperCtrl::onLoopRestart()
 {
-    qInfo("record loop finished:");
-
-    // stop recording but keep playing
-    auto song = Engine::getSong();
+    qInfo("loop restart, action: %d", m_pendingAction);
     auto pianoRoll = getGUI()->pianoRoll();
 
-    pianoRoll->stopRecording();
-    disconnect(song, SIGNAL(updateSampleTracks()),
-        this, SLOT(onRecordLoopFinished()));
-    qInfo(" - dis-connect: record loop finished");
+    switch (m_pendingAction)
+    {
+    case StartRecord:
+        qInfo(" - action: start record, set stop record action");
+        pianoRoll->recordAccompany();
+        m_pendingAction = StopRecord;
+        break;
+
+    case StopRecord:
+        qInfo(" - action: stop record, set no action");
+        pianoRoll->stopRecording();
+        m_pendingAction = NoAction;
+        break;
+
+    case ToggleMuteTrack:
+        qInfo(" - action: toggle mute, set no action");
+        toggleMuteTrack();
+        m_pendingAction = NoAction;
+        break;
+
+    default:
+        break;
+    }
 }
 
-
-void LooperCtrl::onQueueRecord()
+void LooperCtrl::toggleMuteTrack()
 {
-    qInfo("record queued:");
-
-    auto song = Engine::getSong();
     auto pianoRoll = getGUI()->pianoRoll();
-
-    disconnect(song, SIGNAL(updateSampleTracks()),
-        this, SLOT(onQueueRecord()));
-    qInfo(" - dis-connect: on queue record");
-
-    pianoRoll->recordAccompany();
-    connect(song, SIGNAL(updateSampleTracks()),
-        this, SLOT(onRecordLoopFinished()));
-    qInfo(" - connect: on record loop finished");
+    auto clip = pianoRoll->currentMidiClip();
+    if (!clip) { return; }
+    auto track = clip->getTrack();
+    track->setMuted(!track->isMuted());
 }
 
 
@@ -681,9 +694,22 @@ void LooperCtrl::togglePlay()
     auto song = Engine::getSong();
     auto pianoRoll = getGUI()->pianoRoll();
 
-    if (pianoRoll->isRecording()) { qInfo(" - is recording, toggle record"); toggleRecord(); }
-    else if (song->isPlaying()) { qInfo(" - is playing, stop play"); song->stop(); }
-    else { qInfo(" - is idle, start play"); song->playSong(); }
+    if (pianoRoll->isRecording())
+    {
+        qInfo(" - is recording, toggle record");
+        toggleRecord();
+    }
+    else if (song->isPlaying())
+    {
+        qInfo(" - is playing, stop play, set no action");
+        song->stop();
+        m_pendingAction = NoAction;
+    }
+    else
+    {
+        qInfo(" - is idle, start play");
+        song->playSong();
+    }
 }
 
 
@@ -701,26 +727,27 @@ void LooperCtrl::toggleRecord()
     {
         qInfo(" - is recording, stop recording");
         pianoRoll->stopRecording();
-        disconnect(song, SIGNAL(updateSampleTracks()),
-            this, SLOT(onRecordLoopFinished()));
-        qInfo(" - dis-connect: on record loop finished");
     }
-
     else if (song->isPlaying())
     {
-        // start recording on next loop reset
-        qInfo(" - is playing");
-        connect(song, SIGNAL(updateSampleTracks()),
-            this, SLOT(onQueueRecord()));
-        qInfo(" - connect: on queue record");
+        if (pianoRoll->currentMidiClip() == nullptr)
+        {
+            qWarning("Looper: record required, but no clip selected!");
+            return;
+        }
+
+        if (m_pendingAction < ProtectedAction)
+        {
+            // start recording on next loop reset
+            qInfo(" - is playing, set start record");
+            m_pendingAction = StartRecord;
+        }
     }
     else
     {
-        qInfo(" - is idle, record accompany");
+        qInfo(" - is idle, record accompany, set action stop record");
         pianoRoll->recordAccompany();
-        connect(song, SIGNAL(updateSampleTracks()),
-            this, SLOT(onRecordLoopFinished()));
-        qInfo(" - connect: on record loop finished");
+        m_pendingAction = StopRecord;
     }
 }
 

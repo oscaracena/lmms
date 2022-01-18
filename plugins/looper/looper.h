@@ -64,14 +64,29 @@ signals:
 	void trackChanged(int newTrackId);
 
 private slots:
-	void onRecordLoopFinished();
-	void onQueueRecord();
+	void onLoopRestart();
 
 private:
 	friend class LooperView;
 
+	enum PendingAction
+	{
+		// these actions are 'preemtivable'
+		NoAction,
+		StartRecord,
+		ToggleMuteTrack,
+		ToggleSoloTrack,
+		UnMuteAllTracks,
+
+		// these actions are NOT 'preemtivable'
+		ProtectedAction,
+		StopRecord,
+		NumOfPendingActions,
+	};
+
 	void togglePlay();
 	void toggleRecord();
+	void toggleMuteTrack();
 	int getInstrumentTrackAt(int position);
 	void setMidiOnTrack(int trackId=-1);
 
@@ -85,6 +100,8 @@ private:
 	KeyBind m_unmuteAll = {-1, -1};
 	KeyBind m_solo = {-1, -1};
 	KeyBind m_clearNotes = {-1, -1};
+
+	PendingAction m_pendingAction = NoAction;
 };
 
 
