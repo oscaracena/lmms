@@ -88,10 +88,16 @@ private:
 	void toggleRecord();
 	void toggleMuteTrack();
 	int getInstrumentTrackAt(int position);
-	void setMidiOnTrack(int trackId=-1);
+	void setMidiOnTrack(int trackId = -1);
+	void setPendingAction(PendingAction action, bool preempt = false);
+	void setColor(QColor c);
 
 	void saveSettings(QDomDocument &doc, QDomElement &element);
 	void loadSettings(const QDomElement &element);
+
+	const QColor m_colNormal = "#3465A4";
+	const QColor m_colRecording = "#A40000";
+	const QColor m_colQueuedAction = "#CE5C00";
 
 	MidiPortPtr m_midiPort;
 	KeyBind m_play = {-1, -1};
@@ -101,6 +107,7 @@ private:
 	KeyBind m_solo = {-1, -1};
 	KeyBind m_clearNotes = {-1, -1};
 
+	BoolModel m_useColors = true;
 	PendingAction m_pendingAction = NoAction;
 };
 
@@ -130,7 +137,7 @@ private:
 
 	LooperCtrl *m_lcontrol = nullptr;
 	MidiPortMenu *m_readablePorts = nullptr;
-	BoolModel m_enabled;
+	BoolModel m_enabled = false;
 	IntModel m_loopLength;
 };
 

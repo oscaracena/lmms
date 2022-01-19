@@ -42,14 +42,17 @@
     * [OK] MIDI CC pad6: clear all Clip notes of current track (press twice to confirm)
     * [OK] start/stop recording within quantization (at start of next loop iter)
     * [OK] change between play and record seamlessly (no stop playing)
-    * mute/unmute within quantization (at start of next loop iter)
-    * wait start recording until first note comes
-    * support for Clip colors (no controlled, random, fixed)
-    *  - green: normal, red: recording, orange: queued for action (play/record)
+    * [OK] mute/unmute within quantization (at start of next loop iter)
+    * support for Clip colors:
+    * - [OK] blue: normal clip
+    * - red: recording clip
+    * - orange: queued for action (play/record)
     * set individual loop size for each track
     * on end recording clip, clone it to cover the largest one
+    * automatically select first track on init/project load
 
   Expected features (v0.3):
+    * wait start recording until first note comes
     * add dynamic automations for tracks
     * support for multiple Clips per track (move Clip outside the loop, and create new)
     * handle "Sample" tracks
@@ -71,6 +74,7 @@
 #include "GuiApplication.h"
 #include "InstrumentTrack.h"
 #include "LcdSpinBox.h"
+#include "LedCheckbox.h"
 #include "MainWindow.h"
 #include "MidiClient.h"
 #include "PianoRoll.h"
@@ -140,7 +144,6 @@ void LooperTool::loadSettings(const QDomElement &element)
 
 LooperView::LooperView(ToolPlugin *tool) :
 	ToolPluginView(tool),
-    m_enabled(false),
     m_loopLength(4, 1, 256)
 {
     // widget is initially hidden
@@ -148,8 +151,8 @@ LooperView::LooperView(ToolPlugin *tool) :
     parent->hide();
 
     // set some size related properties
-    parent->resize(300, 190);
-    parent->setMaximumSize(parent->width(), parent->height());
+    parent->resize(300, 240);
+    // parent->setMaximumSize(parent->width(), parent->height());
     parent->setMinimumSize(parent->width(), parent->height());
 
     // remove maximize button
@@ -209,10 +212,20 @@ LooperView::LooperView(ToolPlugin *tool) :
 	connect(loadPresetBtn, SIGNAL(clicked()), this, SLOT(onLoadPresetClicked()));
 	grid->addWidget(loadPresetBtn, 0, 4, Qt::AlignRight);
 
+    // options tab
+    auto optionsTab = new TabWidget(tr("Options:"), m_groupBox);
+    auto options = new QVBoxLayout(optionsTab);
+    options->setContentsMargins(3, 0, 3, 0);
+    grid->addWidget(optionsTab, 1, 0, 1, 5);
+
+    auto useColorsLcb = new LedCheckBox(tr("Use colors"), m_groupBox);
+    options->addWidget(useColorsLcb);
+
     // show buttons to change mappings
     auto buttonTab = new TabWidget(tr("Button Mappgings:"), m_groupBox);
     auto buttons = new QHBoxLayout(buttonTab);
-    grid->addWidget(buttonTab, 1, 0, 1, 5);
+    buttons->setContentsMargins(5, 10, 0, 0);
+    grid->addWidget(buttonTab, 2, 0, 1, 5);
 
     auto playBtn = new QPushButton(embed::getIconPixmap("play"), "");
     playBtn->setProperty("action", "play");;
@@ -262,6 +275,7 @@ LooperView::LooperView(ToolPlugin *tool) :
     // create the looper controller
     m_lcontrol = ::new LooperCtrl();
     connect(m_lcontrol, SIGNAL(trackChanged(int)), this, SLOT(onTrackChanged(int)));
+    useColorsLcb->setModel(&m_lcontrol->m_useColors);
 
     // load default preset, if exists
     auto defaultPreset = ConfigManager::inst()->userPresetsDir() + "Looper/default.xpf";
@@ -492,9 +506,11 @@ void LooperView::openTrackOnPianoRoll(int trackId)
         midiclip = dynamic_cast<MidiClip*>(clip);
     }
 
-    getGUI()->pianoRoll()->setCurrentMidiClip(midiclip);
-    getGUI()->pianoRoll()->parentWidget()->show();
-	getGUI()->pianoRoll()->show();
+    auto pianoRoll = getGUI()->pianoRoll();
+    pianoRoll->setCurrentMidiClip(midiclip);
+    m_lcontrol->setColor(m_lcontrol->m_colNormal);
+    pianoRoll->parentWidget()->show();
+	pianoRoll->show();
 }
 
 
@@ -604,9 +620,7 @@ void LooperCtrl::processInEvent(
         // mute current track action
         else if (ev.channel() == m_muteCurrent.first && ev.key() == m_muteCurrent.second)
         {
-            if (m_pendingAction < ProtectedAction) {
-                m_pendingAction = ToggleMuteTrack;
-            }
+            setPendingAction(ToggleMuteTrack);
         }
 
         // unmute all tracks
@@ -650,19 +664,20 @@ void LooperCtrl::onLoopRestart()
     case StartRecord:
         qInfo(" - action: start record, set stop record action");
         pianoRoll->recordAccompany();
+        setColor(m_colRecording);
         m_pendingAction = StopRecord;
         break;
 
     case StopRecord:
         qInfo(" - action: stop record, set no action");
         pianoRoll->stopRecording();
-        m_pendingAction = NoAction;
+        setPendingAction(NoAction);
         break;
 
     case ToggleMuteTrack:
         qInfo(" - action: toggle mute, set no action");
         toggleMuteTrack();
-        m_pendingAction = NoAction;
+        setPendingAction(NoAction);
         break;
 
     default:
@@ -703,7 +718,7 @@ void LooperCtrl::togglePlay()
     {
         qInfo(" - is playing, stop play, set no action");
         song->stop();
-        m_pendingAction = NoAction;
+        setPendingAction(NoAction);
     }
     else
     {
@@ -736,17 +751,15 @@ void LooperCtrl::toggleRecord()
             return;
         }
 
-        if (m_pendingAction < ProtectedAction)
-        {
-            // start recording on next loop reset
-            qInfo(" - is playing, set start record");
-            m_pendingAction = StartRecord;
-        }
+        // start recording on next loop reset
+        qInfo(" - is playing, set start record");
+        setPendingAction(StartRecord);
     }
     else
     {
         qInfo(" - is idle, record accompany, set action stop record");
         pianoRoll->recordAccompany();
+        setColor(m_colRecording);
         m_pendingAction = StopRecord;
     }
 }
@@ -822,6 +835,35 @@ void LooperCtrl::setMidiOnTrack(int trackId)
         }
         emit port->readablePortsChanged();
     }
+}
+
+
+void LooperCtrl::setPendingAction(PendingAction action, bool preempt) {
+    if (preempt || m_pendingAction < ProtectedAction) {
+        m_pendingAction = action;
+        switch (m_pendingAction)
+        {
+        case NoAction:
+            setColor(m_colNormal);
+            break;
+        default:
+            setColor(m_colQueuedAction);
+            break;
+        }
+    }
+}
+
+
+void LooperCtrl::setColor(QColor c) {
+    if (!m_useColors.value()) { return; }
+
+    qInfo(" - set color");
+    auto clip = (Clip*) getGUI()->pianoRoll()->currentMidiClip();
+    if (clip == nullptr) { return; }
+
+    clip->setColor(c);
+    clip->useCustomClipColor(true);
+    emit clip->colorChanged();
 }
 
 
