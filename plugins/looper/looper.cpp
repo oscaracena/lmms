@@ -22,42 +22,6 @@
  *
  */
 
-/*
-  Expected features (v0.1):
-    * [OK] set and control loop duration
-    * [OK] add an empty Clip on start of each track (if not exist)
-    * [OK] open first Clip of choosen track on piano-roll (show piano-roll if hidden)
-    * [OK] MIDI PC: view current track (first Clip) on piano-roll
-    * [OK] MIDI PC: set MIDI input to only current track
-    * [OK] MIDI CC pad1: start/stop playing (on song editor)
-    * [OK] MIDI CC pad2: start/stop record (on piano-roll)
-    * [OK] MIDI CC pad3: enable/disable (mute) current track
-    * [OK] MIDI CC pad4: toggle 'solo' for current track
-    * [OK] MIDI CC pad5: enable (unmute) all tracks
-    * [OK] support custom MIDI mappings for CC controls
-    * [OK] save/load presets (load 'default' on init)
-
-  Expected features (v0.2):
-    * [OK] record for one single loop iteration (keep playing afterwards)
-    * [OK] MIDI CC pad6: clear all Clip notes of current track (press twice to confirm)
-    * [OK] start/stop recording within quantization (at start of next loop iter)
-    * [OK] change between play and record seamlessly (no stop playing)
-    * [OK] mute/unmute within quantization (at start of next loop iter)
-    * support for Clip colors:
-    * - [OK] blue: normal clip
-    * - red: recording clip
-    * - orange: queued for action (play/record)
-    * set individual loop size for each track
-    * on end recording clip, clone it to cover the largest one
-    * automatically select first track on init/project load
-
-  Expected features (v0.3):
-    * wait start recording until first note comes
-    * add dynamic automations for tracks
-    * support for multiple Clips per track (move Clip outside the loop, and create new)
-    * handle "Sample" tracks
-*/
-
 
 #include "looper.h"
 #include "MidiConnectionDialog.h"
@@ -65,6 +29,7 @@
 #include <QMdiSubWindow>
 #include <QMessageBox>
 #include <QVBoxLayout>
+#include <QScrollArea>
 
 #include "ConfigManager.h"
 #include "DataFile.h"
@@ -151,8 +116,8 @@ LooperView::LooperView(ToolPlugin *tool) :
     parent->hide();
 
     // set some size related properties
-    parent->resize(300, 240);
-    // parent->setMaximumSize(parent->width(), parent->height());
+    parent->resize(600, 240);
+    parent->setMaximumSize(parent->width(), parent->height());
     parent->setMinimumSize(parent->width(), parent->height());
 
     // remove maximize button
@@ -161,22 +126,22 @@ LooperView::LooperView(ToolPlugin *tool) :
 	parent->setWindowFlags(flags);
 
     // add a GroupBox to enable/disable this component
-    auto mainLayout = new QVBoxLayout(this);
-	auto m_groupBox = new GroupBox(tr("Loop Controller:"));
-    mainLayout->addWidget(m_groupBox);
+    auto mainLayout = new QHBoxLayout(this);
+	auto groupBox = new GroupBox(tr("Loop Controller:"));
+    mainLayout->addWidget(groupBox, 1, Qt::AlignLeft);
 
     // initialize model for enable/disable tool
     connect(&m_enabled, SIGNAL(dataChanged()), this, SLOT(onEnableChanged()));
-    m_groupBox->setModel(&m_enabled);
+    groupBox->setModel(&m_enabled);
 
-    auto grid = new QGridLayout(m_groupBox);
+    auto grid = new QGridLayout(groupBox);
     grid->setContentsMargins(5, 20, 5, 5);
     grid->setSpacing(10);
     grid->setColumnStretch(1, 1);
 
     // when using with non-raw-clients, show list of input MIDI ports
     // FIXME: add support for raw-clients
-	auto midiInputsBtn = new ToolButton(m_groupBox);
+	auto midiInputsBtn = new ToolButton(groupBox);
 	midiInputsBtn->setIcon(embed::getIconPixmap("piano"));
     midiInputsBtn->setToolTip(tr("MIDI-devices to receive events from"));
     midiInputsBtn->setPopupMode(QToolButton::InstantPopup);
@@ -190,7 +155,7 @@ LooperView::LooperView(ToolPlugin *tool) :
     else { qWarning("Looper: sorry, no support for raw clients!"); }
 
     // input to set loop length
-    auto loopLength = new LcdSpinBox(3, m_groupBox, tr("Middle key"));
+    auto loopLength = new LcdSpinBox(3, groupBox, tr("Middle key"));
 	loopLength->setLabel(tr("LENGTH"));
 	loopLength->setToolTip(tr("Select the loop length (in bars)"));
 	loopLength->setModel(&m_loopLength);
@@ -213,18 +178,18 @@ LooperView::LooperView(ToolPlugin *tool) :
 	grid->addWidget(loadPresetBtn, 0, 4, Qt::AlignRight);
 
     // options tab
-    auto optionsTab = new TabWidget(tr("Options:"), m_groupBox);
+    auto optionsTab = new TabWidget(tr("Options:"), groupBox);
     auto options = new QVBoxLayout(optionsTab);
     options->setContentsMargins(3, 0, 3, 0);
     grid->addWidget(optionsTab, 1, 0, 1, 5);
 
-    auto useColorsLcb = new LedCheckBox(tr("Use colors"), m_groupBox);
+    auto useColorsLcb = new LedCheckBox(tr("Use clip colors to show state"), groupBox);
     options->addWidget(useColorsLcb);
 
     // show buttons to change mappings
-    auto buttonTab = new TabWidget(tr("Button Mappgings:"), m_groupBox);
+    auto buttonTab = new TabWidget(tr("Button Mappgings:"), groupBox);
     auto buttons = new QHBoxLayout(buttonTab);
-    buttons->setContentsMargins(5, 10, 0, 0);
+    buttons->setContentsMargins(5, 15, 5, 0);
     grid->addWidget(buttonTab, 2, 0, 1, 5);
 
     auto playBtn = new QPushButton(embed::getIconPixmap("play"), "");
@@ -272,6 +237,21 @@ LooperView::LooperView(ToolPlugin *tool) :
     // add space on button holder to align content to the left
     buttons->addStretch(1);
 
+    // add another GroupBox to show track information
+    auto tracksTab = new TabWidget(tr("Tracks:"), this);
+    mainLayout->addWidget(tracksTab, 1);
+
+    tracksTab->setLayout(new QHBoxLayout);
+    // auto scrollArea = new QScrollArea(tracksTab);
+    // tracksTab->layout()->addWidget(scrollArea);
+
+    // auto scHolder = new QWidget(tracksTab);
+    // auto tracksLayout = new QVBoxLayout(scHolder);
+    // scrollArea->setWidget(scHolder);
+
+    // tracksLayout->addWidget(new QPushButton("boton"));
+    // tracksTab->layout()->addWidget(new QPushButton("boton"));
+
     // create the looper controller
     m_lcontrol = ::new LooperCtrl();
     connect(m_lcontrol, SIGNAL(trackChanged(int)), this, SLOT(onTrackChanged(int)));
@@ -289,7 +269,8 @@ LooperView::LooperView(ToolPlugin *tool) :
 
     // connect a callback to handle actions on loop restart
     auto song = Engine::getSong();
-    connect(song, SIGNAL(updateSampleTracks()), this, SLOT(onLoopRestart()));
+    connect(song, SIGNAL(projectLoaded()), this, SLOT(onProjectLoad()));
+    connect(song, SIGNAL(trackAdded(Track*)), this, SLOT(onTrackAdded(Track*)));
 }
 
 
@@ -428,6 +409,23 @@ void LooperView::onLoadPresetClicked()
 		        tr("Sorry, this is not a valid Looper preset."));
         }
     }
+}
+
+
+void LooperView::onProjectLoad()
+{
+    auto trackId = m_lcontrol->getInstrumentTrackAt(0);
+    if (trackId != -1)
+    {
+        openTrackOnPianoRoll(trackId);
+        m_lcontrol->setMidiOnTrack(trackId);
+    }
+}
+
+
+void LooperView::onTrackAdded(Track* track)
+{
+
 }
 
 
@@ -671,7 +669,7 @@ void LooperCtrl::onLoopRestart()
     case StopRecord:
         qInfo(" - action: stop record, set no action");
         pianoRoll->stopRecording();
-        setPendingAction(NoAction);
+        setPendingAction(NoAction, true);
         break;
 
     case ToggleMuteTrack:
@@ -684,6 +682,7 @@ void LooperCtrl::onLoopRestart()
         break;
     }
 }
+
 
 void LooperCtrl::toggleMuteTrack()
 {
@@ -839,6 +838,7 @@ void LooperCtrl::setMidiOnTrack(int trackId)
 
 
 void LooperCtrl::setPendingAction(PendingAction action, bool preempt) {
+    qInfo("setPending: %d || %d < %d", preempt, m_pendingAction, ProtectedAction);
     if (preempt || m_pendingAction < ProtectedAction) {
         m_pendingAction = action;
         switch (m_pendingAction)
@@ -869,6 +869,9 @@ void LooperCtrl::setColor(QColor c) {
 
 void LooperCtrl::saveSettings(QDomDocument &doc, QDomElement &element)
 {
+    // save local models
+    m_useColors.saveSettings(doc, element, "useColors");
+
     // save key bindings
     auto keybinds = doc.createElement("keybinds");
     element.appendChild(keybinds);
@@ -906,7 +909,12 @@ void LooperCtrl::saveSettings(QDomDocument &doc, QDomElement &element)
         {
             if (it.value()) {
                 auto input = doc.createElement("input");
-                input.setAttribute("name", it.key());
+
+                // remove midi number from name
+                auto name = it.key();
+                name.remove(0, name.indexOf(" ") + 1);
+
+                input.setAttribute("name", name);
                 input.setAttribute("enabled", "1");
                 midi.appendChild(input);
             }
@@ -917,6 +925,9 @@ void LooperCtrl::saveSettings(QDomDocument &doc, QDomElement &element)
 
 void LooperCtrl::loadSettings(const QDomElement &element)
 {
+    // load local models
+    m_useColors.loadSettings(element, "useColors");
+
     // load key bindings
     QMap<QString, KeyBind*> keys =
     {
@@ -964,7 +975,10 @@ void LooperCtrl::loadSettings(const QDomElement &element)
             // enable only those inputs that were defined in preset
             for (auto it = mports.constBegin(); it != mports.constEnd(); it++)
             {
-                m_midiPort->subscribeReadablePort(it.key(), enabled.contains(it.key()));
+                // remove midi number from name
+                auto name = it.key();
+                name.remove(0, name.indexOf(" ") + 1);
+                m_midiPort->subscribeReadablePort(it.key(), enabled.contains(name));
             }
         }
     }

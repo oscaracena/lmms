@@ -37,6 +37,7 @@
 #include "MidiPortMenu.h"
 #include "ToolPlugin.h"
 #include "ToolPluginView.h"
+#include "Track.h"
 
 
 using MidiPortPtr = QSharedPointer<MidiPort>;
@@ -119,13 +120,15 @@ public:
 	LooperView(ToolPlugin *tool);
 	virtual ~LooperView();
 
-private slots:
+public slots:
 	void onEnableChanged();
 	void onLoopLengthChanged();
 	void onTrackChanged(int newTrackId);
 	void onMappingBtnClicked();
 	void onSavePresetClicked();
 	void onLoadPresetClicked();
+	void onProjectLoad();
+	void onTrackAdded(Track* track);
 
 private:
 	void enableLoop();

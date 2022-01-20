@@ -1,0 +1,36 @@
+Expected features (v0.1):
+  * [OK] set and control loop duration
+  * [OK] add an empty Clip on start of each track (if not exist)
+  * [OK] open first Clip of choosen track on piano-roll (show piano-roll if hidden)
+  * [OK] MIDI PC: view current track (first Clip) on piano-roll
+  * [OK] MIDI PC: set MIDI input to only current track
+  * [OK] MIDI CC pad1: start/stop playing (on song editor)
+  * [OK] MIDI CC pad2: start/stop record (on piano-roll)
+  * [OK] MIDI CC pad3: enable/disable (mute) current track
+  * [OK] MIDI CC pad4: toggle 'solo' for current track
+  * [OK] MIDI CC pad5: enable (unmute) all tracks
+  * [OK] support custom MIDI mappings for CC controls
+  * [OK] save/load presets (load 'default' on init)
+
+Expected features (v0.2):
+  * [OK] record for one single loop iteration (keep playing afterwards)
+  * [OK] MIDI CC pad6: clear all Clip notes of current track (press twice to confirm)
+  * [OK] start/stop recording within quantization (at start of next loop iter)
+  * [OK] change between play and record seamlessly (no stop playing)
+  * [OK] mute/unmute within quantization (at start of next loop iter)
+  * [OK] support for Clip colors:
+       - blue: normal clip
+       - red: recording clip
+       - orange: queued for action (play/record)
+  * [OK] automatically select first track on init/project load
+  * set individual loop size for each track
+  * on end recording clip, clone it to cover the largest one
+
+Expected features (v0.3):
+  * wait start recording until first note comes
+  * add dynamic automations for tracks
+  * support for multiple Clips per track (move Clip outside the loop, and create new)
+  * handle "Sample" tracks
+  * enable/disable global quantization
+  * use Qt Designer to build the tool interface
+  * press record button twice to set number of loops to record (x2 loops)
