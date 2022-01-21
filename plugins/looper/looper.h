@@ -30,6 +30,7 @@
 
 #include <QObject>
 #include <QSharedPointer>
+#include <QVBoxLayout>
 
 #include "GroupBox.h"
 #include "MidiEventProcessor.h"
@@ -137,6 +138,8 @@ private:
 
 	void saveSettings(QDomDocument &doc, QDomElement &element);
 	void loadSettings(const QDomElement &element);
+
+	QVBoxLayout *m_tracksLayout = nullptr;
 
 	LooperCtrl *m_lcontrol = nullptr;
 	MidiPortMenu *m_readablePorts = nullptr;

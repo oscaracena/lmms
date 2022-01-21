@@ -30,6 +30,7 @@
 #include <QMessageBox>
 #include <QVBoxLayout>
 #include <QScrollArea>
+#include <QtDebug>
 
 #include "ConfigManager.h"
 #include "DataFile.h"
@@ -116,9 +117,10 @@ LooperView::LooperView(ToolPlugin *tool) :
     parent->hide();
 
     // set some size related properties
-    parent->resize(600, 240);
+    parent->resize(500, 240);
     parent->setMaximumSize(parent->width(), parent->height());
     parent->setMinimumSize(parent->width(), parent->height());
+    parent->setWindowFlag(Qt::MSWindowsFixedSizeDialogHint, true);
 
     // remove maximize button
     auto flags = parent->windowFlags();
@@ -235,22 +237,24 @@ LooperView::LooperView(ToolPlugin *tool) :
     buttons->addWidget(clearBtn);
 
     // add space on button holder to align content to the left
-    buttons->addStretch(1);
+    buttons->addStretch();
 
     // add another GroupBox to show track information
-    auto tracksTab = new TabWidget(tr("Tracks:"), this);
+    auto tracksTab = new TabWidget(tr("Instrument Tracks:"), this);
+    tracksTab->setLayout(new QHBoxLayout);
+    tracksTab->layout()->setContentsMargins(0, 13, 0, 0);
     mainLayout->addWidget(tracksTab, 1);
 
-    tracksTab->setLayout(new QHBoxLayout);
-    // auto scrollArea = new QScrollArea(tracksTab);
-    // tracksTab->layout()->addWidget(scrollArea);
+    auto scrollArea = new QScrollArea();
+    scrollArea->setWidgetResizable(true);
+    tracksTab->layout()->addWidget(scrollArea);
 
-    // auto scHolder = new QWidget(tracksTab);
-    // auto tracksLayout = new QVBoxLayout(scHolder);
-    // scrollArea->setWidget(scHolder);
+    auto scHolder = new QWidget();
+    m_tracksLayout = new QVBoxLayout(scHolder);
+    m_tracksLayout->setContentsMargins(0, 5, 0, 0);
+    scrollArea->setWidget(scHolder);
 
-    // tracksLayout->addWidget(new QPushButton("boton"));
-    // tracksTab->layout()->addWidget(new QPushButton("boton"));
+    m_tracksLayout->addStretch();
 
     // create the looper controller
     m_lcontrol = ::new LooperCtrl();
@@ -425,7 +429,25 @@ void LooperView::onProjectLoad()
 
 void LooperView::onTrackAdded(Track* track)
 {
+    // only instrument tracks supported
+    if (track->type() != Track::InstrumentTrack) { return; }
 
+    // create widgets for this track
+    auto defName = "Instrument Track #" + QString::number(m_tracksLayout->count() - 1);
+    auto trackInfo = new QPushButton(track->name().isEmpty() ? defName : track->name());
+
+    // connect to update name changes
+    connect(track, &Track::nameChanged, this, [this, trackInfo]() {
+        auto s = (Track*) sender();
+        trackInfo->setText(s->name());
+    });
+
+    connect(track, &Track::destroyedTrack, this, [this, trackInfo]() {
+        m_tracksLayout->removeWidget(trackInfo);
+    });
+
+    // insert to keep last item (a stretch) in the last position
+    m_tracksLayout->insertWidget(m_tracksLayout->count() - 1, trackInfo);
 }
 
 
