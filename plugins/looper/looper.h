@@ -32,6 +32,7 @@
 #include <QSharedPointer>
 #include <QVBoxLayout>
 
+#include "AutomatableModel.h"
 #include "GroupBox.h"
 #include "MidiEventProcessor.h"
 #include "MidiPort.h"
@@ -43,6 +44,7 @@
 
 using MidiPortPtr = QSharedPointer<MidiPort>;
 using KeyBind = QPair<int16_t, int16_t>;
+using LoopLengthMap = QMap<Track*, IntModel*>;
 
 
 class LooperCtrl : public QObject, public MidiEventProcessor
@@ -66,7 +68,11 @@ signals:
 	void trackChanged(int newTrackId);
 
 private slots:
+	void onTrackChanged(int newTrackId);
+	void onLoopLengthChanged();
+	void onEnableChanged();
 	void onLoopRestart();
+	void onProjectLoad();
 
 private:
 	friend class LooperView;
@@ -89,10 +95,12 @@ private:
 	void togglePlay();
 	void toggleRecord();
 	void toggleMuteTrack();
-	int getInstrumentTrackAt(int position);
-	void setMidiOnTrack(int trackId = -1);
+	void setupTrack(int trackId = -1);
+	void openTrackOnPianoRoll(int trackId = -1);
 	void setPendingAction(PendingAction action, bool preempt = false);
 	void setColor(QColor c);
+	int getInstrumentTrackAt(int position);
+	void enableLoop(int length = -1);
 
 	void saveSettings(QDomDocument &doc, QDomElement &element);
 	void loadSettings(const QDomElement &element);
@@ -109,7 +117,12 @@ private:
 	KeyBind m_solo = {-1, -1};
 	KeyBind m_clearNotes = {-1, -1};
 
-	BoolModel m_useColors = true;
+	BoolModel m_enabled = {false};
+	BoolModel m_useColors = {true};
+	BoolModel m_usePerTrackLoopLength = {true};
+	IntModel m_globalLoopLength = {4, 1, 256};
+	LoopLengthMap m_tracksLoopLength;
+
 	PendingAction m_pendingAction = NoAction;
 };
 
@@ -122,29 +135,21 @@ public:
 	virtual ~LooperView();
 
 public slots:
-	void onEnableChanged();
-	void onLoopLengthChanged();
-	void onTrackChanged(int newTrackId);
 	void onMappingBtnClicked();
 	void onSavePresetClicked();
 	void onLoadPresetClicked();
-	void onProjectLoad();
 	void onTrackAdded(Track* track);
 
 private:
-	void enableLoop();
-	void openTrackOnPianoRoll(int trackId=-1);
 	bool loadPreset(QString path);
 
 	void saveSettings(QDomDocument &doc, QDomElement &element);
 	void loadSettings(const QDomElement &element);
 
 	QVBoxLayout *m_tracksLayout = nullptr;
+	MidiPortMenu *m_readablePorts = nullptr;
 
 	LooperCtrl *m_lcontrol = nullptr;
-	MidiPortMenu *m_readablePorts = nullptr;
-	BoolModel m_enabled = false;
-	IntModel m_loopLength;
 };
 
 

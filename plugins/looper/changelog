@@ -1,3 +1,4 @@
+
 Expected features (v0.1):
   * [OK] set and control loop duration
   * [OK] add an empty Clip on start of each track (if not exist)
@@ -27,6 +28,8 @@ Expected features (v0.2):
   * on end recording clip, clone it to cover the largest one
 
 Expected features (v0.3):
+  * ignore Q on mute/solo when not playing
+  * display current track on Looper Tool
   * wait start recording until first note comes
   * add dynamic automations for tracks
   * support for multiple Clips per track (move Clip outside the loop, and create new)
@@ -34,3 +37,4 @@ Expected features (v0.3):
   * enable/disable global quantization
   * use Qt Designer to build the tool interface
   * press record button twice to set number of loops to record (x2 loops)
+  * link MIDI knob to track volume

@@ -26,12 +26,16 @@
 #include "looper.h"
 #include "MidiConnectionDialog.h"
 
+#include <QApplication>
 #include <QMdiSubWindow>
 #include <QMessageBox>
-#include <QVBoxLayout>
+#include <QPalette>
 #include <QScrollArea>
+#include <QVBoxLayout>
+
 #include <QtDebug>
 
+#include "Clip.h"
 #include "ConfigManager.h"
 #include "DataFile.h"
 #include "embed.h"
@@ -41,6 +45,7 @@
 #include "InstrumentTrack.h"
 #include "LcdSpinBox.h"
 #include "LedCheckbox.h"
+#include "LmmsStyle.h"
 #include "MainWindow.h"
 #include "MidiClient.h"
 #include "PianoRoll.h"
@@ -48,7 +53,6 @@
 #include "Song.h"
 #include "TimeLineWidget.h"
 #include "ToolButton.h"
-#include "Clip.h"
 
 
 extern "C"
@@ -110,7 +114,7 @@ void LooperTool::loadSettings(const QDomElement &element)
 
 LooperView::LooperView(ToolPlugin *tool) :
 	ToolPluginView(tool),
-    m_loopLength(4, 1, 256)
+    m_lcontrol(::new LooperCtrl)
 {
     // widget is initially hidden
     auto parent = parentWidget();
@@ -130,11 +134,8 @@ LooperView::LooperView(ToolPlugin *tool) :
     // add a GroupBox to enable/disable this component
     auto mainLayout = new QHBoxLayout(this);
 	auto groupBox = new GroupBox(tr("Loop Controller:"));
+    groupBox->setModel(&m_lcontrol->m_enabled);
     mainLayout->addWidget(groupBox, 1, Qt::AlignLeft);
-
-    // initialize model for enable/disable tool
-    connect(&m_enabled, SIGNAL(dataChanged()), this, SLOT(onEnableChanged()));
-    groupBox->setModel(&m_enabled);
 
     auto grid = new QGridLayout(groupBox);
     grid->setContentsMargins(5, 20, 5, 5);
@@ -153,15 +154,15 @@ LooperView::LooperView(ToolPlugin *tool) :
 	{
 		m_readablePorts = new MidiPortMenu(MidiPort::Input);
 		midiInputsBtn->setMenu(m_readablePorts);
+        m_readablePorts->setModel(m_lcontrol->m_midiPort.get());
 	}
     else { qWarning("Looper: sorry, no support for raw clients!"); }
 
     // input to set loop length
-    auto loopLength = new LcdSpinBox(3, groupBox, tr("Middle key"));
+    auto loopLength = new LcdSpinBox(3, groupBox);
 	loopLength->setLabel(tr("LENGTH"));
 	loopLength->setToolTip(tr("Select the loop length (in bars)"));
-	loopLength->setModel(&m_loopLength);
-    connect(&m_loopLength, SIGNAL(dataChanged()), this, SLOT(onLoopLengthChanged()));
+	loopLength->setModel(&m_lcontrol->m_globalLoopLength);
     grid->addWidget(loopLength, 0, 1, Qt::AlignLeft);
 
     grid->setColumnStretch(2, 1);
@@ -182,11 +183,17 @@ LooperView::LooperView(ToolPlugin *tool) :
     // options tab
     auto optionsTab = new TabWidget(tr("Options:"), groupBox);
     auto options = new QVBoxLayout(optionsTab);
-    options->setContentsMargins(3, 0, 3, 0);
+    options->setContentsMargins(3, 15, 3, 0);
+    options->setSpacing(0);
     grid->addWidget(optionsTab, 1, 0, 1, 5);
 
     auto useColorsLcb = new LedCheckBox(tr("Use clip colors to show state"), groupBox);
+    useColorsLcb->setModel(&m_lcontrol->m_useColors);
     options->addWidget(useColorsLcb);
+
+    auto usePerTrackLoopLength = new LedCheckBox(tr("Use per-track loop length"), groupBox);
+    usePerTrackLoopLength->setModel(&m_lcontrol->m_usePerTrackLoopLength);
+    options->addWidget(usePerTrackLoopLength);
 
     // show buttons to change mappings
     auto buttonTab = new TabWidget(tr("Button Mappgings:"), groupBox);
@@ -252,14 +259,10 @@ LooperView::LooperView(ToolPlugin *tool) :
     auto scHolder = new QWidget();
     m_tracksLayout = new QVBoxLayout(scHolder);
     m_tracksLayout->setContentsMargins(0, 5, 0, 0);
+    m_tracksLayout->setSpacing(1);
     scrollArea->setWidget(scHolder);
 
     m_tracksLayout->addStretch();
-
-    // create the looper controller
-    m_lcontrol = ::new LooperCtrl();
-    connect(m_lcontrol, SIGNAL(trackChanged(int)), this, SLOT(onTrackChanged(int)));
-    useColorsLcb->setModel(&m_lcontrol->m_useColors);
 
     // load default preset, if exists
     auto defaultPreset = ConfigManager::inst()->userPresetsDir() + "Looper/default.xpf";
@@ -271,65 +274,24 @@ LooperView::LooperView(ToolPlugin *tool) :
         }
     }
 
-    // connect a callback to handle actions on loop restart
+    // connect some callbacks
     auto song = Engine::getSong();
-    connect(song, SIGNAL(projectLoaded()), this, SLOT(onProjectLoad()));
+    connect(song, SIGNAL(projectLoaded()), m_lcontrol, SLOT(onProjectLoad()));
     connect(song, SIGNAL(trackAdded(Track*)), this, SLOT(onTrackAdded(Track*)));
 }
 
 
 LooperView::~LooperView()
 {
-    if (m_lcontrol)
-    {
-        ::delete m_lcontrol;
-        m_lcontrol = nullptr;
-    }
-}
-
-
-void LooperView::onEnableChanged()
-{
-    if (m_enabled.value())
-    {
-        m_lcontrol->m_midiPort->setMode(MidiPort::Input);
-        if (m_readablePorts)
-        {
-            m_readablePorts->setModel(m_lcontrol->m_midiPort.get());
-        }
-
-        enableLoop();
-
-        auto trackId = m_lcontrol->getInstrumentTrackAt(0);
-        if (trackId != -1)
-        {
-            openTrackOnPianoRoll(trackId);
-            m_lcontrol->setMidiOnTrack(trackId);
-        }
-    }
-    else
-    {
-        m_lcontrol->m_midiPort->setMode(MidiPort::Disabled);
-    }
-}
-
-
-void LooperView::onLoopLengthChanged()
-{
-    if (m_enabled.value()) { enableLoop(); }
-}
-
-
-void LooperView::onTrackChanged(int newTrackId)
-{
-    openTrackOnPianoRoll(newTrackId);
+    ::delete m_lcontrol;
+    m_lcontrol = nullptr;
 }
 
 
 void LooperView::onMappingBtnClicked()
 {
     // if looper not enabled, do nothing
-    if (!m_enabled.value() || !m_lcontrol) { return; }
+    if (!m_lcontrol || !m_lcontrol->m_enabled.value()) { return; }
 
     auto action = sender()->property("action").toString().toStdString();
     KeyBind def = {-1, -1};
@@ -416,34 +378,71 @@ void LooperView::onLoadPresetClicked()
 }
 
 
-void LooperView::onProjectLoad()
-{
-    auto trackId = m_lcontrol->getInstrumentTrackAt(0);
-    if (trackId != -1)
-    {
-        openTrackOnPianoRoll(trackId);
-        m_lcontrol->setMidiOnTrack(trackId);
-    }
-}
-
-
 void LooperView::onTrackAdded(Track* track)
 {
     // only instrument tracks supported
     if (track->type() != Track::InstrumentTrack) { return; }
 
-    // create widgets for this track
-    auto defName = "Instrument Track #" + QString::number(m_tracksLayout->count() - 1);
-    auto trackInfo = new QPushButton(track->name().isEmpty() ? defName : track->name());
+    // create widgets for this track:
+    auto trackInfo = new QWidget();
+    auto layout = new QHBoxLayout();
+    layout->setSpacing(0);
+    layout->setContentsMargins(5, 0, 0, 0);
+    trackInfo->setLayout(layout);
 
-    // connect to update name changes
-    connect(track, &Track::nameChanged, this, [this, trackInfo]() {
-        auto s = (Track*) sender();
-        trackInfo->setText(s->name());
+	QPalette pal;
+    auto bgColor = QApplication::palette().color(QPalette::Window).lighter();
+	pal.setColor(backgroundRole(), bgColor);
+
+	trackInfo->setPalette(pal);
+    trackInfo->setFixedHeight(track->getHeight());
+	trackInfo->setAutoFillBackground(true);
+
+    // - Track name as widget label
+    const auto LABEL_WIDTH = 110;
+    auto label = new QLabel();
+    label->setStyleSheet("font-size: 9pt");
+    label->setFixedWidth(LABEL_WIDTH);
+    layout->addWidget(label);
+
+    auto setLabel = [this, label](QString name) {
+        if (name.isEmpty())
+            name = "Instrument T. #" + QString::number(m_tracksLayout->count());
+        auto end = "";
+        while (label->fontMetrics().horizontalAdvance(name) > LABEL_WIDTH - 7) {
+            name = name.left(name.size() - 1);
+            end = "...";
+        }
+        label->setText(name + end);
+    };
+    setLabel(track->name());
+
+    // - LCD input to set this track loop length
+    auto model = new IntModel(m_lcontrol->m_globalLoopLength.value(), 1, 256);
+    m_lcontrol->m_tracksLoopLength[track] = model;
+    auto loopLength = new LcdSpinBox(3, trackInfo);
+	loopLength->setLabel(tr("LENGTH"));
+	loopLength->setToolTip(tr("Set this track loop length (in bars)"));
+	loopLength->setModel(model);
+    layout->addSpacing(5);
+    layout->addWidget(loopLength);
+
+    // - align items to the left
+    layout->addStretch();
+
+    // listen to track name changes
+    connect(track, &Track::nameChanged, this, [this, label, setLabel]() {
+        auto track = (Track*) sender();
+        setLabel(track->name());
     });
 
-    connect(track, &Track::destroyedTrack, this, [this, trackInfo]() {
+    // listen to track removal
+    connect(track, &Track::destroyedTrack, this, [this, trackInfo, model]() {
+        auto track = (Track*) sender();
         m_tracksLayout->removeWidget(trackInfo);
+        trackInfo->deleteLater();
+        m_lcontrol->m_tracksLoopLength.remove(track);
+        delete model;
     });
 
     // insert to keep last item (a stretch) in the last position
@@ -476,64 +475,6 @@ bool LooperView::loadPreset(QString path)
 }
 
 
-void LooperView::enableLoop()
-{
-    // activate loop points
-    auto song = Engine::getSong();
-    auto timeline = song->getPlayPos(song->Mode_PlaySong).m_timeLine;
-
-    // get current settings, and change only what we want
-    QDomDocument doc;
-    auto config = doc.createElement("config");
-    timeline->saveSettings(doc, config);
-    config.setAttribute("lp0pos", 0);
-	config.setAttribute("lp1pos", m_loopLength.value() * DefaultTicksPerBar);
-	config.setAttribute("lpstate", TimeLineWidget::LoopPointsEnabled);
-    timeline->loadSettings(config);
-}
-
-
-void LooperView::openTrackOnPianoRoll(int trackId)
-{
-    // open first Clip of choosen track on piano-roll (show piano-roll if hidden)
-    auto tracks = Engine::getSong()->tracks();
-
-    // if track is not given, search for the first instrument track (if any)
-    if (trackId == -1)
-    {
-        trackId = m_lcontrol->getInstrumentTrackAt(0);
-        if (trackId == -1) { return; }
-    }
-    Track *track = tracks.at(trackId);
-
-    // get Clip at pos 0 (not first Clip!)
-    MidiClip *midiclip = nullptr;
-    auto clips = track->getClips();
-    for (int i=0; i<clips.size(); i++)
-    {
-        auto clip = clips.at(i);
-        if (clip->startPosition() == 0)
-        {
-            midiclip = dynamic_cast<MidiClip*>(clip);
-        }
-    }
-
-    // if not midiclip, there is no Clip at pos 0, create it
-    if (!midiclip)
-    {
-        auto clip = track->createClip(0);
-        clip->setName(QString("looper-track-%1").arg(trackId));
-        midiclip = dynamic_cast<MidiClip*>(clip);
-    }
-
-    auto pianoRoll = getGUI()->pianoRoll();
-    pianoRoll->setCurrentMidiClip(midiclip);
-    m_lcontrol->setColor(m_lcontrol->m_colNormal);
-    pianoRoll->parentWidget()->show();
-	pianoRoll->show();
-}
-
-
 void LooperView::saveSettings(QDomDocument &doc, QDomElement &element)
 {
     element.setAttribute("name", "Looper");
@@ -544,17 +485,13 @@ void LooperView::saveSettings(QDomDocument &doc, QDomElement &element)
     element.setAttribute("x", parentWidget()->pos().x());
     element.setAttribute("y", parentWidget()->pos().y());
 
-    m_loopLength.saveSettings(doc, element, "loop-length");
-    m_enabled.saveSettings(doc, element, "enable");
     m_lcontrol->saveSettings(doc, element);
 }
 
 
 void LooperView::loadSettings(const QDomElement &element)
 {
-    m_loopLength.loadSettings(element, "loop-length");
     m_lcontrol->loadSettings(element);
-    m_enabled.loadSettings(element, "enable");
 
     // move window to saved position
     auto x = element.attribute("x", "0").toInt();
@@ -594,6 +531,9 @@ LooperCtrl::LooperCtrl()
     // connect a callback to handle actions on loop restart
     auto song = Engine::getSong();
     connect(song, SIGNAL(updateSampleTracks()), this, SLOT(onLoopRestart()));
+    connect(&m_enabled, SIGNAL(dataChanged()), this, SLOT(onEnableChanged()));
+    connect(&m_globalLoopLength, SIGNAL(dataChanged()), this, SLOT(onLoopLengthChanged()));
+    connect(this, SIGNAL(trackChanged(int)), this, SLOT(onTrackChanged(int)));
 
     qInfo("Looper: controller created");
 }
@@ -616,7 +556,7 @@ void LooperCtrl::processInEvent(
             qWarning("Looper: there is no Instrument Track number %d", ev.key());
             return;
         }
-        setMidiOnTrack(trackId);
+        setupTrack(trackId);
         emit trackChanged(trackId);
     }
 
@@ -674,6 +614,39 @@ void LooperCtrl::processInEvent(
     }
 }
 
+
+void LooperCtrl::onTrackChanged(int newTrackId)
+{
+    openTrackOnPianoRoll(newTrackId);
+}
+
+
+void LooperCtrl::onLoopLengthChanged()
+{
+    if (m_enabled.value()) { enableLoop(); }
+}
+
+
+void LooperCtrl::onEnableChanged(){
+
+    if (m_enabled.value())
+    {
+        m_midiPort->setMode(MidiPort::Input);
+
+        auto trackId = getInstrumentTrackAt(0);
+        if (trackId != -1)
+        {
+            openTrackOnPianoRoll(trackId);
+            setupTrack(trackId);
+        }
+    }
+    else
+    {
+        m_midiPort->setMode(MidiPort::Disabled);
+    }
+}
+
+
 void LooperCtrl::onLoopRestart()
 {
     qInfo("loop restart, action: %d", m_pendingAction);
@@ -702,6 +675,17 @@ void LooperCtrl::onLoopRestart()
 
     default:
         break;
+    }
+}
+
+
+void LooperCtrl::onProjectLoad()
+{
+    auto trackId = getInstrumentTrackAt(0);
+    if (trackId != -1)
+    {
+        openTrackOnPianoRoll(trackId);
+        setupTrack(trackId);
     }
 }
 
@@ -763,6 +747,7 @@ void LooperCtrl::toggleRecord()
     {
         qInfo(" - is recording, stop recording");
         pianoRoll->stopRecording();
+        setColor(m_colNormal);
     }
     else if (song->isPlaying())
     {
@@ -801,7 +786,7 @@ int LooperCtrl::getInstrumentTrackAt(int position)
 
 
 // Note: before calling this method, ensure client is not raw
-void LooperCtrl::setMidiOnTrack(int trackId)
+void LooperCtrl::setupTrack(int trackId)
 {
     // if track is not given, search for the first instrument track (if any)
     if (trackId == -1)
@@ -856,6 +841,19 @@ void LooperCtrl::setMidiOnTrack(int trackId)
         }
         emit port->readablePortsChanged();
     }
+
+    // set loop length per track basis (if enabled)
+    int length = -1;
+    if (m_usePerTrackLoopLength.value())
+    {
+        auto it = m_tracksLoopLength.find(track);
+        if (it != m_tracksLoopLength.end())
+        {
+            length = it.value()->value();
+        }
+    }
+
+    enableLoop(length);
 }
 
 
@@ -889,10 +887,77 @@ void LooperCtrl::setColor(QColor c) {
 }
 
 
+void LooperCtrl::enableLoop(int length)
+{
+    // if length not given, use global length
+    if (length == -1) { length = m_globalLoopLength.value(); }
+
+    // convert length from bars to ticks
+    length *= DefaultTicksPerBar;
+
+    // setup loop points on timeline
+    auto song = Engine::getSong();
+    auto timeline = song->getPlayPos(song->Mode_PlaySong).m_timeLine;
+
+    QDomDocument doc;
+    auto config = doc.createElement("config");
+    timeline->saveSettings(doc, config);
+    config.setAttribute("lp0pos", 0);
+	config.setAttribute("lp1pos", length);
+	config.setAttribute("lpstate", TimeLineWidget::LoopPointsEnabled);
+    timeline->loadSettings(config);
+}
+
+
+// Note: this needs to be done inside GUI thread (it may modify track)
+void LooperCtrl::openTrackOnPianoRoll(int trackId)
+{
+    // open first Clip of choosen track on piano-roll (show piano-roll if hidden)
+    auto tracks = Engine::getSong()->tracks();
+
+    // if track is not given, search for the first instrument track (if any)
+    if (trackId == -1)
+    {
+        trackId = getInstrumentTrackAt(0);
+        if (trackId == -1) { return; }
+    }
+    Track *track = tracks.at(trackId);
+
+    // get Clip at pos 0 (not first Clip!)
+    MidiClip *midiclip = nullptr;
+    auto clips = track->getClips();
+    for (int i=0; i<clips.size(); i++)
+    {
+        auto clip = clips.at(i);
+        if (clip->startPosition() == 0)
+        {
+            midiclip = dynamic_cast<MidiClip*>(clip);
+        }
+    }
+
+    // if not midiclip, there is no Clip at pos 0, create it
+    if (!midiclip)
+    {
+        auto clip = track->createClip(0);
+        clip->setName(QString("looper-track-%1").arg(trackId));
+        midiclip = dynamic_cast<MidiClip*>(clip);
+    }
+
+    auto pianoRoll = getGUI()->pianoRoll();
+    pianoRoll->setCurrentMidiClip(midiclip);
+    setColor(m_colNormal);
+    pianoRoll->parentWidget()->show();
+	pianoRoll->show();
+}
+
+
 void LooperCtrl::saveSettings(QDomDocument &doc, QDomElement &element)
 {
     // save local models
+    m_enabled.saveSettings(doc, element, "enable");
     m_useColors.saveSettings(doc, element, "useColors");
+    m_usePerTrackLoopLength.saveSettings(doc, element, "useTrackLoopLength");
+    m_globalLoopLength.saveSettings(doc, element, "loop-length");
 
     // save key bindings
     auto keybinds = doc.createElement("keybinds");
@@ -948,7 +1013,11 @@ void LooperCtrl::saveSettings(QDomDocument &doc, QDomElement &element)
 void LooperCtrl::loadSettings(const QDomElement &element)
 {
     // load local models
+    m_globalLoopLength.loadSettings(element, "loop-length");
     m_useColors.loadSettings(element, "useColors");
+    m_usePerTrackLoopLength.loadSettings(element, "useTrackLoopLength");
+
+    m_enabled.loadSettings(element, "enable");
 
     // load key bindings
     QMap<QString, KeyBind*> keys =
