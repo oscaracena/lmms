@@ -161,7 +161,7 @@ LooperView::LooperView(ToolPlugin *tool) :
     // input to set loop length
     auto loopLength = new LcdSpinBox(3, groupBox);
 	loopLength->setLabel(tr("LENGTH"));
-	loopLength->setToolTip(tr("Select the loop length (in bars)"));
+	loopLength->setToolTip(tr("Select the global (default) loop length (in bars)"));
 	loopLength->setModel(&m_lcontrol->m_globalLoopLength);
     grid->addWidget(loopLength, 0, 1, Qt::AlignLeft);
 
@@ -649,26 +649,27 @@ void LooperCtrl::onEnableChanged(){
 
 void LooperCtrl::onLoopRestart()
 {
-    qInfo("loop restart, action: %d", m_pendingAction);
+    // qInfo("loop restart, action: %d", m_pendingAction);
     auto pianoRoll = getGUI()->pianoRoll();
 
     switch (m_pendingAction)
     {
     case StartRecord:
-        qInfo(" - action: start record, set stop record action");
+        // qInfo(" - action: start record, set stop record action");
         pianoRoll->recordAccompany();
         setColor(m_colRecording);
         m_pendingAction = StopRecord;
         break;
 
     case StopRecord:
-        qInfo(" - action: stop record, set no action");
+        // qInfo(" - action: stop record, set no action");
         pianoRoll->stopRecording();
         setPendingAction(NoAction, true);
+        copyClips();
         break;
 
     case ToggleMuteTrack:
-        qInfo(" - action: toggle mute, set no action");
+        // qInfo(" - action: toggle mute, set no action");
         toggleMuteTrack();
         setPendingAction(NoAction);
         break;
@@ -709,25 +710,25 @@ void LooperCtrl::toggleMuteTrack()
 
 void LooperCtrl::togglePlay()
 {
-    qInfo("toggle play:");
+    // qInfo("toggle play:");
 
     auto song = Engine::getSong();
     auto pianoRoll = getGUI()->pianoRoll();
 
     if (pianoRoll->isRecording())
     {
-        qInfo(" - is recording, toggle record");
+        // qInfo(" - is recording, toggle record");
         toggleRecord();
     }
     else if (song->isPlaying())
     {
-        qInfo(" - is playing, stop play, set no action");
+        // qInfo(" - is playing, stop play, set no action");
         song->stop();
         setPendingAction(NoAction);
     }
     else
     {
-        qInfo(" - is idle, start play");
+        // qInfo(" - is idle, start play");
         song->playSong();
     }
 }
@@ -738,14 +739,14 @@ void LooperCtrl::toggleRecord()
     // note: 'updateSampleTracks' is emitted by Song on enforceLoop lambda (if
     // loop is reset) and also by setPlayPos, which is used when left, right
     // or home keys are pressed
-    qInfo("toggle record:");
+    // qInfo("toggle record:");
 
     auto song = Engine::getSong();
     auto pianoRoll = getGUI()->pianoRoll();
 
     if (pianoRoll->isRecording())
     {
-        qInfo(" - is recording, stop recording");
+        // qInfo(" - is recording, stop recording");
         pianoRoll->stopRecording();
         setColor(m_colNormal);
     }
@@ -758,12 +759,12 @@ void LooperCtrl::toggleRecord()
         }
 
         // start recording on next loop reset
-        qInfo(" - is playing, set start record");
+        // qInfo(" - is playing, set start record");
         setPendingAction(StartRecord);
     }
     else
     {
-        qInfo(" - is idle, record accompany, set action stop record");
+        // qInfo(" - is idle, record accompany, set action stop record");
         pianoRoll->recordAccompany();
         setColor(m_colRecording);
         m_pendingAction = StopRecord;
@@ -858,7 +859,7 @@ void LooperCtrl::setupTrack(int trackId)
 
 
 void LooperCtrl::setPendingAction(PendingAction action, bool preempt) {
-    qInfo("setPending: %d || %d < %d", preempt, m_pendingAction, ProtectedAction);
+    // qInfo("setPending: %d || %d < %d", preempt, m_pendingAction, ProtectedAction);
     if (preempt || m_pendingAction < ProtectedAction) {
         m_pendingAction = action;
         switch (m_pendingAction)
@@ -877,7 +878,7 @@ void LooperCtrl::setPendingAction(PendingAction action, bool preempt) {
 void LooperCtrl::setColor(QColor c) {
     if (!m_useColors.value()) { return; }
 
-    qInfo(" - set color");
+    // qInfo(" - set color");
     auto clip = (Clip*) getGUI()->pianoRoll()->currentMidiClip();
     if (clip == nullptr) { return; }
 
@@ -906,6 +907,34 @@ void LooperCtrl::enableLoop(int length)
 	config.setAttribute("lp1pos", length);
 	config.setAttribute("lpstate", TimeLineWidget::LoopPointsEnabled);
     timeline->loadSettings(config);
+}
+
+
+void LooperCtrl::copyClips()
+{
+    auto pianoRoll = getGUI()->pianoRoll();
+    auto clip = pianoRoll->currentMidiClip();
+
+    // get longest loop of all tracks (not just global)
+    auto maxSize = 0;
+    for (auto it : m_tracksLoopLength)
+        maxSize = qMax(maxSize, it->value());
+
+    auto remain = maxSize - clip->getTrack()->length();
+    auto copies = ceil(float(remain) / clip->length().getBar());
+    qInfo() << " \n >>>> need to create " << copies
+        << "maxSize: " << maxSize << ", remain: " << remain
+        << ", lenBar: " << clip->length().getBar()
+        << ", lenTrack: " << clip->getTrack()->length();
+
+    MidiClip *lastClip = (MidiClip*)clip;
+    for (int i=0; i<copies; i++)
+    {
+        auto newClip = new MidiClip(*clip);
+        newClip->setColor(clip->color());
+        newClip->movePosition(lastClip->endPosition());
+        lastClip = newClip;
+    }
 }
 
 

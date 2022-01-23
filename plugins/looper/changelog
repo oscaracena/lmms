@@ -24,10 +24,12 @@ Expected features (v0.2):
        - red: recording clip
        - orange: queued for action (play/record)
   * [OK] automatically select first track on init/project load
-  * set individual loop size for each track
-  * on end recording clip, clone it to cover the largest one
+  * [OK] set individual loop size for each track
+  * [OK] on end recording clip, clone it to cover the largest one
 
 Expected features (v0.3):
+  * press record button twice to set number of loops to record (x2 loops)
+  * show current status next to track info
   * ignore Q on mute/solo when not playing
   * display current track on Looper Tool
   * wait start recording until first note comes
@@ -36,5 +38,4 @@ Expected features (v0.3):
   * handle "Sample" tracks
   * enable/disable global quantization
   * use Qt Designer to build the tool interface
-  * press record button twice to set number of loops to record (x2 loops)
   * link MIDI knob to track volume

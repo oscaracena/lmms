@@ -101,6 +101,7 @@ private:
 	void setColor(QColor c);
 	int getInstrumentTrackAt(int position);
 	void enableLoop(int length = -1);
+	void copyClips();
 
 	void saveSettings(QDomDocument &doc, QDomElement &element);
 	void loadSettings(const QDomElement &element);
