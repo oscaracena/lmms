@@ -427,6 +427,13 @@ void LooperView::onTrackAdded(Track* track)
     layout->addSpacing(5);
     layout->addWidget(loopLength);
 
+    // - status label
+    // FIXME: create an automatable (observable) label
+    // auto status = new QLabel("status");
+    // status->setStyleSheet("border: 1px solid red");
+    // status->setModel(nullptr);
+    // layout->addWidget(status);
+
     // - align items to the left
     layout->addStretch();
 
@@ -610,6 +617,13 @@ void LooperCtrl::processInEvent(
             auto clip = pianoRoll->currentMidiClip();
             if (!clip) { return; }
             ((MidiClip*)clip)->clearNotes();
+
+            // remove other clips
+            auto track = clip->getTrack();
+            for (auto c : track->getClips())
+            {
+                if ((MidiClip*)c != (MidiClip*)clip) { c->deleteLater(); }
+            }
         }
     }
 }
@@ -658,7 +672,12 @@ void LooperCtrl::onLoopRestart()
         // qInfo(" - action: start record, set stop record action");
         pianoRoll->recordAccompany();
         setColor(m_colRecording);
-        m_pendingAction = StopRecord;
+        m_recordLoopCount--;
+        if (m_recordLoopCount <= 0)
+        {
+            m_recordLoopCount = 0;
+            m_pendingAction = StopRecord;
+        }
         break;
 
     case StopRecord:
@@ -749,6 +768,7 @@ void LooperCtrl::toggleRecord()
         // qInfo(" - is recording, stop recording");
         pianoRoll->stopRecording();
         setColor(m_colNormal);
+        m_recordLoopCount = 0;
     }
     else if (song->isPlaying())
     {
@@ -760,6 +780,7 @@ void LooperCtrl::toggleRecord()
 
         // start recording on next loop reset
         // qInfo(" - is playing, set start record");
+        m_recordLoopCount++;
         setPendingAction(StartRecord);
     }
     else
@@ -922,10 +943,10 @@ void LooperCtrl::copyClips()
 
     auto remain = maxSize - clip->getTrack()->length();
     auto copies = ceil(float(remain) / clip->length().getBar());
-    qInfo() << " \n >>>> need to create " << copies
-        << "maxSize: " << maxSize << ", remain: " << remain
-        << ", lenBar: " << clip->length().getBar()
-        << ", lenTrack: " << clip->getTrack()->length();
+    // qInfo() << " \n >>>> need to create " << copies
+    //     << "maxSize: " << maxSize << ", remain: " << remain
+    //     << ", lenBar: " << clip->length().getBar()
+    //     << ", lenTrack: " << clip->getTrack()->length();
 
     MidiClip *lastClip = (MidiClip*)clip;
     for (int i=0; i<copies; i++)

@@ -28,10 +28,13 @@ Expected features (v0.2):
   * [OK] on end recording clip, clone it to cover the largest one
 
 Expected features (v0.3):
-  * press record button twice to set number of loops to record (x2 loops)
+  * [OK] press record button twice to set number of loops to record (x2 loops)
+  * [OK] on clear, remove notes from cloned clips
+  * if clip is added, update cloned clips
   * show current status next to track info
   * ignore Q on mute/solo when not playing
-  * display current track on Looper Tool
+  * set specific color for cloned clips
+  * display current track on Looper Tool (change border or background)
   * wait start recording until first note comes
   * add dynamic automations for tracks
   * support for multiple Clips per track (move Clip outside the loop, and create new)
