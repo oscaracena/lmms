@@ -30,15 +30,17 @@ Expected features (v0.2):
 Expected features (v0.3):
   * [OK] press record button twice to set number of loops to record (x2 loops)
   * [OK] on clear, remove cloned clips
+  * [OK] show current status next to track info
+  * [OK] set specific color for cloned clips
   * if clip is updated, update cloned clips
-  * show current status next to track info
   * ignore Q on mute/solo when not playing
-  * set specific color for cloned clips
   * display current track on Looper Tool (change border or background)
   * wait start recording until first note comes
   * add dynamic automations for tracks
   * support for multiple Clips per track (move Clip outside the loop, and create new)
   * handle "Sample" tracks
   * enable/disable global quantization
-  * use Qt Designer to build the tool interface
   * link MIDI knob to track volume
+
+Expected features (v0.4):
+  * use Qt Designer to build the tool interface

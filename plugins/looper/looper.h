@@ -102,7 +102,7 @@ private:
 	void setColor(QColor c);
 	int getInstrumentTrackAt(int position);
 	void enableLoop(int length = -1);
-	void copyClips();
+	void cloneClips();
 	void emitTrackStatus(QString status);
 
 	void saveSettings(QDomDocument &doc, QDomElement &element);
@@ -111,6 +111,7 @@ private:
 	const QColor m_colNormal = "#3465A4";
 	const QColor m_colRecording = "#A40000";
 	const QColor m_colQueuedAction = "#CE5C00";
+	const QColor m_colCloneClip = "#0e386b";
 
 	MidiPortPtr m_midiPort;
 	KeyBind m_play = {-1, -1};

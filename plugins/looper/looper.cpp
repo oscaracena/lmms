@@ -694,7 +694,7 @@ void LooperCtrl::onLoopRestart()
         // qInfo(" - action: stop record, set no action");
         pianoRoll->stopRecording();
         setPendingAction(NoAction, true);
-        copyClips();
+        cloneClips();
 
         m_recordLoopCount = 0;
         emitTrackStatus("");
@@ -992,7 +992,7 @@ void LooperCtrl::enableLoop(int length)
 }
 
 
-void LooperCtrl::copyClips()
+void LooperCtrl::cloneClips()
 {
     auto pianoRoll = getGUI()->pianoRoll();
     auto clip = pianoRoll->currentMidiClip();
@@ -1013,7 +1013,8 @@ void LooperCtrl::copyClips()
     for (int i=0; i<copies; i++)
     {
         auto newClip = new MidiClip(*clip);
-        newClip->setColor(clip->color());
+        newClip->setColor(m_colCloneClip);
+        newClip->useCustomClipColor(true);
         newClip->movePosition(lastClip->endPosition());
         lastClip = newClip;
     }
