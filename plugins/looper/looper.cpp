@@ -33,6 +33,9 @@
 #include <QScrollArea>
 #include <QVBoxLayout>
 
+#include <QStandardItemModel>
+#include <QDataWidgetMapper>
+
 #include <QtDebug>
 
 #include "Clip.h"
@@ -428,11 +431,16 @@ void LooperView::onTrackAdded(Track* track)
     layout->addWidget(loopLength);
 
     // - status label
-    // FIXME: create an automatable (observable) label
-    // auto status = new QLabel("status");
-    // status->setStyleSheet("border: 1px solid red");
-    // status->setModel(nullptr);
-    // layout->addWidget(status);
+    auto status = new QLabel;
+    layout->addWidget(status);
+
+    connect(m_lcontrol, &LooperCtrl::trackStatusChange, this,
+    [this, track, status](Track* t, QString text) {
+        if (t == track)
+            status->setText(text);
+        else
+            status->setText("");
+    });
 
     // - align items to the left
     layout->addStretch();
@@ -672,6 +680,8 @@ void LooperCtrl::onLoopRestart()
         // qInfo(" - action: start record, set stop record action");
         pianoRoll->recordAccompany();
         setColor(m_colRecording);
+        emitTrackStatus("R (x" + QString::number(m_recordLoopCount) + ")");
+
         m_recordLoopCount--;
         if (m_recordLoopCount <= 0)
         {
@@ -685,6 +695,9 @@ void LooperCtrl::onLoopRestart()
         pianoRoll->stopRecording();
         setPendingAction(NoAction, true);
         copyClips();
+
+        m_recordLoopCount = 0;
+        emitTrackStatus("");
         break;
 
     case ToggleMuteTrack:
@@ -767,8 +780,9 @@ void LooperCtrl::toggleRecord()
     {
         // qInfo(" - is recording, stop recording");
         pianoRoll->stopRecording();
-        setColor(m_colNormal);
+        setPendingAction(NoAction, true);
         m_recordLoopCount = 0;
+        emitTrackStatus("");
     }
     else if (song->isPlaying())
     {
@@ -781,14 +795,16 @@ void LooperCtrl::toggleRecord()
         // start recording on next loop reset
         // qInfo(" - is playing, set start record");
         m_recordLoopCount++;
+        emitTrackStatus("R (x" + QString::number(m_recordLoopCount) + ")");
         setPendingAction(StartRecord);
     }
     else
     {
         // qInfo(" - is idle, record accompany, set action stop record");
         pianoRoll->recordAccompany();
-        setColor(m_colRecording);
-        m_pendingAction = StopRecord;
+        m_recordLoopCount = 1;
+        emitTrackStatus("R (x" + QString::number(m_recordLoopCount) + ")");
+        setPendingAction(StopRecord, true);
     }
 }
 
@@ -879,6 +895,48 @@ void LooperCtrl::setupTrack(int trackId)
 }
 
 
+// Note: this needs to be done inside GUI thread (it may modify track)
+void LooperCtrl::openTrackOnPianoRoll(int trackId)
+{
+    // open first Clip of choosen track on piano-roll (show piano-roll if hidden)
+    auto tracks = Engine::getSong()->tracks();
+
+    // if track is not given, search for the first instrument track (if any)
+    if (trackId == -1)
+    {
+        trackId = getInstrumentTrackAt(0);
+        if (trackId == -1) { return; }
+    }
+    Track *track = tracks.at(trackId);
+
+    // get Clip at pos 0 (not first Clip!)
+    MidiClip *midiclip = nullptr;
+    auto clips = track->getClips();
+    for (int i=0; i<clips.size(); i++)
+    {
+        auto clip = clips.at(i);
+        if (clip->startPosition() == 0)
+        {
+            midiclip = dynamic_cast<MidiClip*>(clip);
+        }
+    }
+
+    // if not midiclip, there is no Clip at pos 0, create it
+    if (!midiclip)
+    {
+        auto clip = track->createClip(0);
+        clip->setName(QString("looper-track-%1").arg(trackId));
+        midiclip = dynamic_cast<MidiClip*>(clip);
+    }
+
+    auto pianoRoll = getGUI()->pianoRoll();
+    pianoRoll->setCurrentMidiClip(midiclip);
+    setColor(m_colNormal);
+    pianoRoll->parentWidget()->show();
+	pianoRoll->show();
+}
+
+
 void LooperCtrl::setPendingAction(PendingAction action, bool preempt) {
     // qInfo("setPending: %d || %d < %d", preempt, m_pendingAction, ProtectedAction);
     if (preempt || m_pendingAction < ProtectedAction) {
@@ -887,6 +945,9 @@ void LooperCtrl::setPendingAction(PendingAction action, bool preempt) {
         {
         case NoAction:
             setColor(m_colNormal);
+            break;
+        case StopRecord:
+            setColor(m_colRecording);
             break;
         default:
             setColor(m_colQueuedAction);
@@ -959,45 +1020,11 @@ void LooperCtrl::copyClips()
 }
 
 
-// Note: this needs to be done inside GUI thread (it may modify track)
-void LooperCtrl::openTrackOnPianoRoll(int trackId)
+void LooperCtrl::emitTrackStatus(QString status)
 {
-    // open first Clip of choosen track on piano-roll (show piano-roll if hidden)
-    auto tracks = Engine::getSong()->tracks();
-
-    // if track is not given, search for the first instrument track (if any)
-    if (trackId == -1)
-    {
-        trackId = getInstrumentTrackAt(0);
-        if (trackId == -1) { return; }
-    }
-    Track *track = tracks.at(trackId);
-
-    // get Clip at pos 0 (not first Clip!)
-    MidiClip *midiclip = nullptr;
-    auto clips = track->getClips();
-    for (int i=0; i<clips.size(); i++)
-    {
-        auto clip = clips.at(i);
-        if (clip->startPosition() == 0)
-        {
-            midiclip = dynamic_cast<MidiClip*>(clip);
-        }
-    }
-
-    // if not midiclip, there is no Clip at pos 0, create it
-    if (!midiclip)
-    {
-        auto clip = track->createClip(0);
-        clip->setName(QString("looper-track-%1").arg(trackId));
-        midiclip = dynamic_cast<MidiClip*>(clip);
-    }
-
-    auto pianoRoll = getGUI()->pianoRoll();
-    pianoRoll->setCurrentMidiClip(midiclip);
-    setColor(m_colNormal);
-    pianoRoll->parentWidget()->show();
-	pianoRoll->show();
+    auto clip = (Clip*) getGUI()->pianoRoll()->currentMidiClip();
+    if (clip == nullptr) { return; }
+    emit trackStatusChange(clip->getTrack(), status);
 }
 
 

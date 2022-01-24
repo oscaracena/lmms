@@ -66,6 +66,7 @@ public:
 
 signals:
 	void trackChanged(int newTrackId);
+	void trackStatusChange(Track* track, QString text);
 
 private slots:
 	void onTrackChanged(int newTrackId);
@@ -102,6 +103,7 @@ private:
 	int getInstrumentTrackAt(int position);
 	void enableLoop(int length = -1);
 	void copyClips();
+	void emitTrackStatus(QString status);
 
 	void saveSettings(QDomDocument &doc, QDomElement &element);
 	void loadSettings(const QDomElement &element);
