@@ -37,6 +37,7 @@ Expected features (v0.3):
   * link MIDI knob to track volume
   * ignore Q on mute/solo when not playing
   * enable/disable global quantization
+  * add per track quantization toggle
   * display current track on Looper Tool (change border or background)
 
 Expected features (v0.4):
