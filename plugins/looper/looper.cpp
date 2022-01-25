@@ -694,7 +694,7 @@ void LooperCtrl::onLoopRestart()
         // qInfo(" - action: start record, set stop record action");
         pianoRoll->recordAccompany();
         setColor(m_colRecording);
-        emitTrackStatus("R (x" + QString::number(m_recordLoopCount) + ")");
+        emitTrackStatus(Recording);
 
         m_recordLoopCount--;
         if (m_recordLoopCount <= 0)
@@ -706,12 +706,19 @@ void LooperCtrl::onLoopRestart()
 
     case StopRecord:
         // qInfo(" - action: stop record, set no action");
+        if (m_recordLoopCount > 1)
+        {
+            m_recordLoopCount--;
+            emitTrackStatus(Recording);
+            return;
+        }
+
         pianoRoll->stopRecording();
         setPendingAction(NoAction, true);
         cloneClips();
 
         m_recordLoopCount = 0;
-        emitTrackStatus("");
+        emitTrackStatus(Idle);
         break;
 
     case ToggleMuteTrack:
@@ -770,6 +777,8 @@ void LooperCtrl::togglePlay()
     {
         // qInfo(" - is playing, stop play, set no action");
         song->stop();
+        m_recordLoopCount = 0;
+        emitTrackStatus(Idle);
         setPendingAction(NoAction);
     }
     else
@@ -796,7 +805,7 @@ void LooperCtrl::toggleRecord()
         pianoRoll->stopRecording();
         setPendingAction(NoAction, true);
         m_recordLoopCount = 0;
-        emitTrackStatus("");
+        emitTrackStatus(Idle);
     }
     else if (song->isPlaying())
     {
@@ -809,8 +818,8 @@ void LooperCtrl::toggleRecord()
         // start recording on next loop reset
         // qInfo(" - is playing, set start record");
         m_recordLoopCount++;
-        emitTrackStatus("R (x" + QString::number(m_recordLoopCount) + ")");
         setPendingAction(StartRecord);
+        emitTrackStatus(Recording);
     }
     else
     {
@@ -823,11 +832,12 @@ void LooperCtrl::toggleRecord()
         {
             // qInfo(" - is idle, record accompany, set action stop record");
             pianoRoll->recordAccompany();
-            m_recordLoopCount = 1;
+
+            // no recordOnNote, so just record one loop
+            if (m_pendingAction != StartRecordOnNote) { m_recordLoopCount = 1; }
             setPendingAction(StopRecord, true);
         }
-
-        emitTrackStatus("R (x" + QString::number(m_recordLoopCount) + ")");
+        emitTrackStatus(Recording);
     }
 }
 
@@ -960,7 +970,8 @@ void LooperCtrl::openTrackOnPianoRoll(int trackId)
 }
 
 
-void LooperCtrl::setPendingAction(PendingAction action, bool preempt) {
+void LooperCtrl::setPendingAction(PendingAction action, bool preempt)
+{
     // qInfo("setPending: %d || %d < %d", preempt, m_pendingAction, ProtectedAction);
     if (preempt || m_pendingAction < ProtectedAction) {
         m_pendingAction = action;
@@ -1044,11 +1055,13 @@ void LooperCtrl::cloneClips()
 }
 
 
-void LooperCtrl::emitTrackStatus(QString status)
+void LooperCtrl::emitTrackStatus(Status status)
 {
+    auto msg = QString("");
+    if (status == Recording) { msg += "R (x" + QString::number(m_recordLoopCount) + ")"; }
     auto clip = (Clip*) getGUI()->pianoRoll()->currentMidiClip();
     if (clip == nullptr) { return; }
-    emit trackStatusChange(clip->getTrack(), status);
+    emit trackStatusChange(clip->getTrack(), msg);
 }
 
 

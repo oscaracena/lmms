@@ -94,6 +94,13 @@ private:
 		NumOfPendingActions,
 	};
 
+	enum Status
+	{
+		Recording,
+		Idle,
+		NumOfStatuses,
+	};
+
 	void togglePlay();
 	void toggleRecord();
 	void toggleMuteTrack();
@@ -104,7 +111,7 @@ private:
 	int getInstrumentTrackAt(int position);
 	void enableLoop(int length = -1);
 	void cloneClips();
-	void emitTrackStatus(QString status);
+	void emitTrackStatus(Status status);
 
 	void saveSettings(QDomDocument &doc, QDomElement &element);
 	void loadSettings(const QDomElement &element);
