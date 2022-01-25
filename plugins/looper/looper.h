@@ -83,6 +83,7 @@ private:
 		// these actions are 'preemtivable'
 		NoAction,
 		StartRecord,
+		StartRecordOnNote,
 		ToggleMuteTrack,
 		ToggleSoloTrack,
 		UnMuteAllTracks,
@@ -124,6 +125,7 @@ private:
 	BoolModel m_enabled = {false};
 	BoolModel m_useColors = {true};
 	BoolModel m_usePerTrackLoopLength = {true};
+	BoolModel m_recordOnNote = {true};
 	IntModel m_globalLoopLength = {4, 1, 256};
 	int m_recordLoopCount = 0;
 	LoopLengthMap m_tracksLoopLength;

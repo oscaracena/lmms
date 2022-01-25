@@ -124,7 +124,7 @@ LooperView::LooperView(ToolPlugin *tool) :
     parent->hide();
 
     // set some size related properties
-    parent->resize(500, 240);
+    parent->resize(500, 250);
     parent->setMaximumSize(parent->width(), parent->height());
     parent->setMinimumSize(parent->width(), parent->height());
     parent->setWindowFlag(Qt::MSWindowsFixedSizeDialogHint, true);
@@ -197,6 +197,10 @@ LooperView::LooperView(ToolPlugin *tool) :
     auto usePerTrackLoopLength = new LedCheckBox(tr("Use per-track loop length"), groupBox);
     usePerTrackLoopLength->setModel(&m_lcontrol->m_usePerTrackLoopLength);
     options->addWidget(usePerTrackLoopLength);
+
+    auto recordOnNote = new LedCheckBox(tr("Start recording on first note"), groupBox);
+    recordOnNote->setModel(&m_lcontrol->m_recordOnNote);
+    options->addWidget(recordOnNote);
 
     // show buttons to change mappings
     auto buttonTab = new TabWidget(tr("Button Mappgings:"), groupBox);
@@ -386,6 +390,8 @@ void LooperView::onTrackAdded(Track* track)
     // only instrument tracks supported
     if (track->type() != Track::InstrumentTrack) { return; }
 
+    auto fontStyle = "font-size: 9pt";
+
     // create widgets for this track:
     auto trackInfo = new QWidget();
     auto layout = new QHBoxLayout();
@@ -404,7 +410,7 @@ void LooperView::onTrackAdded(Track* track)
     // - Track name as widget label
     const auto LABEL_WIDTH = 110;
     auto label = new QLabel();
-    label->setStyleSheet("font-size: 9pt");
+    label->setStyleSheet(fontStyle);
     label->setFixedWidth(LABEL_WIDTH);
     layout->addWidget(label);
 
@@ -432,6 +438,8 @@ void LooperView::onTrackAdded(Track* track)
 
     // - status label
     auto status = new QLabel;
+    status->setStyleSheet(fontStyle);
+    layout->addSpacing(5);
     layout->addWidget(status);
 
     connect(m_lcontrol, &LooperCtrl::trackStatusChange, this,
@@ -589,6 +597,8 @@ void LooperCtrl::processInEvent(
         // record action
         else if (ev.channel() == m_record.first && ev.key() == m_record.second)
         {
+            // set to NoAction so we can increment the record count when recordOnNote
+            setPendingAction(NoAction);
             toggleRecord();
         }
 
@@ -633,6 +643,10 @@ void LooperCtrl::processInEvent(
                 if ((MidiClip*)c != (MidiClip*)clip) { c->deleteLater(); }
             }
         }
+    }
+    else if (m_pendingAction == StartRecordOnNote && ev.type() == MidiNoteOn)
+    {
+        toggleRecord();
     }
 }
 
@@ -800,11 +814,20 @@ void LooperCtrl::toggleRecord()
     }
     else
     {
-        // qInfo(" - is idle, record accompany, set action stop record");
-        pianoRoll->recordAccompany();
-        m_recordLoopCount = 1;
+        if (m_recordOnNote.value() && m_pendingAction == NoAction)
+        {
+            m_recordLoopCount++;
+            setPendingAction(StartRecordOnNote);
+        }
+        else
+        {
+            // qInfo(" - is idle, record accompany, set action stop record");
+            pianoRoll->recordAccompany();
+            m_recordLoopCount = 1;
+            setPendingAction(StopRecord, true);
+        }
+
         emitTrackStatus("R (x" + QString::number(m_recordLoopCount) + ")");
-        setPendingAction(StopRecord, true);
     }
 }
 
@@ -1035,7 +1058,8 @@ void LooperCtrl::saveSettings(QDomDocument &doc, QDomElement &element)
     m_enabled.saveSettings(doc, element, "enable");
     m_useColors.saveSettings(doc, element, "useColors");
     m_usePerTrackLoopLength.saveSettings(doc, element, "useTrackLoopLength");
-    m_globalLoopLength.saveSettings(doc, element, "loop-length");
+    m_globalLoopLength.saveSettings(doc, element, "globalLoopLength");
+    m_recordOnNote.saveSettings(doc, element, "recordOnNote");
 
     // save key bindings
     auto keybinds = doc.createElement("keybinds");
@@ -1091,10 +1115,10 @@ void LooperCtrl::saveSettings(QDomDocument &doc, QDomElement &element)
 void LooperCtrl::loadSettings(const QDomElement &element)
 {
     // load local models
-    m_globalLoopLength.loadSettings(element, "loop-length");
+    m_globalLoopLength.loadSettings(element, "globalLoopLength");
     m_useColors.loadSettings(element, "useColors");
     m_usePerTrackLoopLength.loadSettings(element, "useTrackLoopLength");
-
+    m_recordOnNote.loadSettings(element, "recordOnNote");
     m_enabled.loadSettings(element, "enable");
 
     // load key bindings
