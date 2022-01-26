@@ -42,9 +42,23 @@
 #include "Track.h"
 
 
+class TrackSettings;
+
 using MidiPortPtr = QSharedPointer<MidiPort>;
 using KeyBind = QPair<int16_t, int16_t>;
-using LoopLengthMap = QMap<Track*, IntModel*>;
+using TrackSettingsMap = QMap<Track*, TrackSettings*>;
+
+
+class TrackSettings
+{
+public:
+	TrackSettings(int loopLength) :
+		m_loopLength(loopLength, 1, 256)
+	{}
+
+	IntModel m_loopLength;
+	BoolModel m_enableQ = {true};
+};
 
 
 class LooperCtrl : public QObject, public MidiEventProcessor
@@ -112,6 +126,8 @@ private:
 	void enableLoop(int length = -1);
 	void cloneClips();
 	void emitTrackStatus(Status status);
+	TrackSettings* createTrackSettings(Track* track);
+	void deleteTrackSettings(Track* track);
 
 	void saveSettings(QDomDocument &doc, QDomElement &element);
 	void loadSettings(const QDomElement &element);
@@ -134,9 +150,9 @@ private:
 	BoolModel m_usePerTrackLoopLength = {true};
 	BoolModel m_recordOnNote = {true};
 	IntModel m_globalLoopLength = {4, 1, 256};
-	int m_recordLoopCount = 0;
-	LoopLengthMap m_tracksLoopLength;
 
+	int m_recordLoopCount = 0;
+	TrackSettingsMap m_trackSettings;
 	PendingAction m_pendingAction = NoAction;
 };
 

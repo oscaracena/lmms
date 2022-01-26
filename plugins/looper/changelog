@@ -13,7 +13,7 @@ Expected features (v0.1):
   * [OK] support custom MIDI mappings for CC controls
   * [OK] save/load presets (load 'default' on init)
 
-Expected features (v0.2):
+Expected features/bugfix (v0.2):
   * [OK] record for one single loop iteration (keep playing afterwards)
   * [OK] MIDI CC pad6: clear all Clip notes of current track (press twice to confirm)
   * [OK] start/stop recording within quantization (at start of next loop iter)
@@ -27,21 +27,22 @@ Expected features (v0.2):
   * [OK] set individual loop size for each track
   * [OK] on end recording clip, clone it to cover the largest one
 
-Expected features (v0.3):
+Expected features/bugfix (v0.3):
   * [OK] press record button twice to set number of loops to record (x2 loops)
   * [OK] on clear, remove cloned clips
   * [OK] show current status next to track info
   * [OK] set specific color for cloned clips
   * [OK] wait start recording until first note comes
+  * add per track quantization toggle
   * if clip is updated, update cloned clips
   * link MIDI knob to track volume
   * ignore Q on mute/solo when not playing
   * enable/disable global quantization
-  * add per track quantization toggle
   * display current track on Looper Tool (change border or background)
   * update timeline loop size when changed on selected track
+  * on change track, move pending actions to new selected track
 
-Expected features (v0.4):
+Expected features/bugfix (v0.4):
   * add dynamic automations for tracks
   * handle "Sample" tracks
   * support for multiple Clips per track (move Clip outside the loop, and create new)

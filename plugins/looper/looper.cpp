@@ -124,7 +124,7 @@ LooperView::LooperView(ToolPlugin *tool) :
     parent->hide();
 
     // set some size related properties
-    parent->resize(500, 250);
+    parent->resize(520, 250);
     parent->setMaximumSize(parent->width(), parent->height());
     parent->setMinimumSize(parent->width(), parent->height());
     parent->setWindowFlag(Qt::MSWindowsFixedSizeDialogHint, true);
@@ -390,7 +390,11 @@ void LooperView::onTrackAdded(Track* track)
     // only instrument tracks supported
     if (track->type() != Track::InstrumentTrack) { return; }
 
-    auto fontStyle = "font-size: 9pt";
+    const auto FONT_STYLE = "font-size: 9pt";
+    const auto LABEL_WIDTH = 110;
+
+    // create track settings object
+    auto tsettings = m_lcontrol->createTrackSettings(track);
 
     // create widgets for this track:
     auto trackInfo = new QWidget();
@@ -408,9 +412,8 @@ void LooperView::onTrackAdded(Track* track)
 	trackInfo->setAutoFillBackground(true);
 
     // - Track name as widget label
-    const auto LABEL_WIDTH = 110;
     auto label = new QLabel();
-    label->setStyleSheet(fontStyle);
+    label->setStyleSheet(FONT_STYLE);
     label->setFixedWidth(LABEL_WIDTH);
     layout->addWidget(label);
 
@@ -427,18 +430,23 @@ void LooperView::onTrackAdded(Track* track)
     setLabel(track->name());
 
     // - LCD input to set this track loop length
-    auto model = new IntModel(m_lcontrol->m_globalLoopLength.value(), 1, 256);
-    m_lcontrol->m_tracksLoopLength[track] = model;
     auto loopLength = new LcdSpinBox(3, trackInfo);
 	loopLength->setLabel(tr("LENGTH"));
 	loopLength->setToolTip(tr("Set this track loop length (in bars)"));
-	loopLength->setModel(model);
+	loopLength->setModel(&tsettings->m_loopLength);
     layout->addSpacing(5);
     layout->addWidget(loopLength);
 
+    // - enable/disable track quantization
+    auto enableQ = new LedCheckBox("", trackInfo);
+    enableQ->setToolTip(tr("Enable/disable track quantization"));
+    enableQ->setModel(&tsettings->m_enableQ);
+    layout->addSpacing(5);
+    layout->addWidget(enableQ);
+
     // - status label
     auto status = new QLabel;
-    status->setStyleSheet(fontStyle);
+    status->setStyleSheet(FONT_STYLE);
     layout->addSpacing(5);
     layout->addWidget(status);
 
@@ -460,12 +468,11 @@ void LooperView::onTrackAdded(Track* track)
     });
 
     // listen to track removal
-    connect(track, &Track::destroyedTrack, this, [this, trackInfo, model]() {
+    connect(track, &Track::destroyedTrack, this, [this, trackInfo]() {
         auto track = (Track*) sender();
         m_tracksLayout->removeWidget(trackInfo);
         trackInfo->deleteLater();
-        m_lcontrol->m_tracksLoopLength.remove(track);
-        delete model;
+        m_lcontrol->deleteTrackSettings(track);
     });
 
     // insert to keep last item (a stretch) in the last position
@@ -705,14 +712,16 @@ void LooperCtrl::onLoopRestart()
         break;
 
     case StopRecord:
-        // qInfo(" - action: stop record, set no action");
+        qInfo(" - action: stop record");
         if (m_recordLoopCount > 1)
         {
+            qInfo(" - loop count: %d, keep recording", m_recordLoopCount);
             m_recordLoopCount--;
             emitTrackStatus(Recording);
             return;
         }
 
+        qInfo(" - no more loops, stop record");
         pianoRoll->stopRecording();
         setPendingAction(NoAction, true);
         cloneClips();
@@ -722,7 +731,7 @@ void LooperCtrl::onLoopRestart()
         break;
 
     case ToggleMuteTrack:
-        // qInfo(" - action: toggle mute, set no action");
+        qInfo(" - action: toggle mute, set no action");
         toggleMuteTrack();
         setPendingAction(NoAction);
         break;
@@ -763,19 +772,19 @@ void LooperCtrl::toggleMuteTrack()
 
 void LooperCtrl::togglePlay()
 {
-    // qInfo("toggle play:");
+    qInfo("toggle play:");
 
     auto song = Engine::getSong();
     auto pianoRoll = getGUI()->pianoRoll();
 
     if (pianoRoll->isRecording())
     {
-        // qInfo(" - is recording, toggle record");
+        qInfo(" - is recording, toggle record");
         toggleRecord();
     }
     else if (song->isPlaying())
     {
-        // qInfo(" - is playing, stop play, set no action");
+        qInfo(" - is playing, stop play, set no action");
         song->stop();
         m_recordLoopCount = 0;
         emitTrackStatus(Idle);
@@ -783,7 +792,7 @@ void LooperCtrl::togglePlay()
     }
     else
     {
-        // qInfo(" - is idle, start play");
+        qInfo(" - is idle, start play");
         song->playSong();
     }
 }
@@ -794,43 +803,67 @@ void LooperCtrl::toggleRecord()
     // note: 'updateSampleTracks' is emitted by Song on enforceLoop lambda (if
     // loop is reset) and also by setPlayPos, which is used when left, right
     // or home keys are pressed
-    // qInfo("toggle record:");
+    qInfo("toggle record:");
 
     auto song = Engine::getSong();
     auto pianoRoll = getGUI()->pianoRoll();
 
     if (pianoRoll->isRecording())
     {
-        // qInfo(" - is recording, stop recording");
+        qInfo(" - is recording, stop recording");
         pianoRoll->stopRecording();
-        setPendingAction(NoAction, true);
         m_recordLoopCount = 0;
+        setPendingAction(NoAction, true);
         emitTrackStatus(Idle);
     }
     else if (song->isPlaying())
     {
-        if (pianoRoll->currentMidiClip() == nullptr)
+        auto currentClip = pianoRoll->currentMidiClip();
+        if (currentClip == nullptr)
         {
             qWarning("Looper: record required, but no clip selected!");
             return;
         }
 
-        // start recording on next loop reset
-        // qInfo(" - is playing, set start record");
-        m_recordLoopCount++;
-        setPendingAction(StartRecord);
+        // get if track quantization is enabled
+        bool trackQ = true;
+        auto it = m_trackSettings.find(currentClip->getTrack());
+        if (it != m_trackSettings.end())
+        {
+            trackQ = it.value()->m_enableQ.value();
+        }
+
+        // if quantization is not enabled, start just now
+        if (!trackQ)
+        {
+            qInfo(" - is playing, Q not enabled, start recording");
+            m_recordLoopCount = 1;
+            pianoRoll->recordAccompany();
+        }
+        // otherwise, start recording on next loop reset
+        else
+        {
+            qInfo(" - is playing, queue record");
+            m_recordLoopCount++;
+            setPendingAction(StartRecord);
+        }
+
         emitTrackStatus(Recording);
     }
     else
     {
+        // if record-on-note is enabled, just set action and continue
         if (m_recordOnNote.value() && m_pendingAction == NoAction)
         {
             m_recordLoopCount++;
             setPendingAction(StartRecordOnNote);
         }
+
+        // if record-on-note is disabled, or a note-on is received, then
+        // start recording
         else
         {
-            // qInfo(" - is idle, record accompany, set action stop record");
+            qInfo(" - is idle, record accompany, set action stop record");
             pianoRoll->recordAccompany();
 
             // no recordOnNote, so just record one loop
@@ -917,10 +950,10 @@ void LooperCtrl::setupTrack(int trackId)
     int length = -1;
     if (m_usePerTrackLoopLength.value())
     {
-        auto it = m_tracksLoopLength.find(track);
-        if (it != m_tracksLoopLength.end())
+        auto it = m_trackSettings.find(track);
+        if (it != m_trackSettings.end())
         {
-            length = it.value()->value();
+            length = it.value()->m_loopLength.value();
         }
     }
 
@@ -1033,8 +1066,8 @@ void LooperCtrl::cloneClips()
 
     // get longest loop of all tracks (not just global)
     auto maxSize = 0;
-    for (auto it : m_tracksLoopLength)
-        maxSize = qMax(maxSize, it->value());
+    for (auto it : m_trackSettings)
+        maxSize = qMax(maxSize, it->m_loopLength.value());
 
     auto remain = maxSize - clip->getTrack()->length();
     auto copies = ceil(float(remain) / clip->length().getBar());
@@ -1062,6 +1095,23 @@ void LooperCtrl::emitTrackStatus(Status status)
     auto clip = (Clip*) getGUI()->pianoRoll()->currentMidiClip();
     if (clip == nullptr) { return; }
     emit trackStatusChange(clip->getTrack(), msg);
+}
+
+
+TrackSettings* LooperCtrl::createTrackSettings(Track* track)
+{
+    auto ts = new TrackSettings(
+        m_globalLoopLength.value()
+    );
+    m_trackSettings[track] = ts;
+    return ts;
+}
+
+
+void LooperCtrl::deleteTrackSettings(Track* track)
+{
+    auto value = m_trackSettings.take(track);
+    if (value) { ::delete value; }
 }
 
 
