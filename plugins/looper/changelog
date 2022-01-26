@@ -39,6 +39,7 @@ Expected features (v0.3):
   * enable/disable global quantization
   * add per track quantization toggle
   * display current track on Looper Tool (change border or background)
+  * update timeline loop size when changed on selected track
 
 Expected features (v0.4):
   * add dynamic automations for tracks
