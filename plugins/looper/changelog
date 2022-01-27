@@ -38,6 +38,7 @@ Expected features/bugfix (v0.3):
   * [OK] ignore Q on mute/solo when not playing
 
 Expected features/bugfix (v0.4):
+  * if recorded is bigger that specified loop length (per track if enabled), then crop before copy
   * enable/disable global quantization
   * if clip is updated, update cloned clips
   * link MIDI knob to track volume
