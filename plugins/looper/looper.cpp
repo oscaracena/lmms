@@ -155,9 +155,9 @@ LooperView::LooperView(ToolPlugin *tool) :
 
 	if (!Engine::audioEngine()->midiClient()->isRaw())
 	{
-		m_readablePorts = new MidiPortMenu(MidiPort::Input);
-		midiInputsBtn->setMenu(m_readablePorts);
-        m_readablePorts->setModel(m_lcontrol->m_midiPort.get());
+		auto readablePorts = new MidiPortMenu(MidiPort::Input);
+        readablePorts->setModel(m_lcontrol->m_midiPort.get());
+		midiInputsBtn->setMenu(readablePorts);
 	}
     else { qWarning("Looper: sorry, no support for raw clients!"); }
 
@@ -613,7 +613,7 @@ void LooperCtrl::processInEvent(
         else if (ev.channel() == m_muteCurrent.first && ev.key() == m_muteCurrent.second)
         {
             // if quantization is not enabled, mute just now
-            if (!isTrackQEnabled()) { toggleMuteTrack(); }
+            if (!isTrackQEnabled() || !Engine::getSong()->isPlaying()) { toggleMuteTrack(); }
             else { setPendingAction(ToggleMuteTrack); }
         }
 
@@ -633,7 +633,7 @@ void LooperCtrl::processInEvent(
         else if (ev.channel() == m_solo.first && ev.key() == m_solo.second)
         {
             // if quantization is not enabled, make solo just now
-            if (!isTrackQEnabled()) { toggleSoloTrack(); }
+            if (!isTrackQEnabled() || !Engine::getSong()->isPlaying()) { toggleSoloTrack(); }
             else { setPendingAction(ToggleSoloTrack); }
         }
 
@@ -1120,9 +1120,20 @@ void LooperCtrl::emitTrackStatus(Status status)
 
 TrackSettings* LooperCtrl::createTrackSettings(Track* track)
 {
-    auto ts = new TrackSettings(
-        m_globalLoopLength.value()
-    );
+    TrackSettings *ts = nullptr;
+
+    // if there are stored settings, use them for this track number
+    int tpos = m_trackSettings.size();
+    if (tpos < m_loadedTrackSettings.size())
+    {
+        auto saved_ts = m_loadedTrackSettings.at(tpos);
+        ts = new TrackSettings(saved_ts);
+    }
+    else
+    {
+        ts = new TrackSettings(m_globalLoopLength.value());
+    }
+
     m_trackSettings[track] = ts;
     return ts;
 }
@@ -1167,7 +1178,7 @@ void LooperCtrl::saveSettings(QDomDocument &doc, QDomElement &element)
     m_recordOnNote.saveSettings(doc, element, "recordOnNote");
 
     // save key bindings
-    auto keybinds = doc.createElement("keybinds");
+    auto keybinds = doc.createElement("keyBinds");
     element.appendChild(keybinds);
 
     QMap<QString, KeyBind> keys =
@@ -1180,15 +1191,25 @@ void LooperCtrl::saveSettings(QDomDocument &doc, QDomElement &element)
         {"clearNotes", m_clearNotes}
     };
 
-    auto it = keys.constBegin();
-    while (it != keys.constEnd())
+    for (auto it = keys.constBegin(); it != keys.constEnd(); it++)
     {
         auto key = doc.createElement("key");
         key.setAttribute("name", it.key());
-        key.setAttribute("channel", QString::number(it.value().first));
-        key.setAttribute("control", QString::number(it.value().second));
+        key.setAttribute("channel", it.value().first);
+        key.setAttribute("control", it.value().second);
         keybinds.appendChild(key);
-        it++;
+    }
+
+    // save current tracks' settings
+    auto tracks = doc.createElement("trackSettings");
+    element.appendChild(tracks);
+    for (auto it = m_trackSettings.constBegin(); it != m_trackSettings.constEnd(); it++)
+    {
+        auto track = doc.createElement("track");
+        track.setAttribute("name", it.key()->name());
+        track.setAttribute("loopLength", it.value()->m_loopLength.value());
+        track.setAttribute("enableQ", it.value()->m_enableQ.value());
+        tracks.appendChild(track);
     }
 
     // save midi input list
@@ -1237,7 +1258,7 @@ void LooperCtrl::loadSettings(const QDomElement &element)
         {"clearNotes", &m_clearNotes}
     };
 
-    auto keybinds = element.firstChildElement("keybinds");
+    auto keybinds = element.firstChildElement("keyBinds");
 	if (!keybinds.isNull())
     {
         auto binds = keybinds.childNodes();
@@ -1250,6 +1271,46 @@ void LooperCtrl::loadSettings(const QDomElement &element)
                 it.value()->first = bind.attribute("channel", "-1").toInt();
                 it.value()->second = bind.attribute("control", "-1").toInt();
             }
+        }
+    }
+
+    // load saved tracks' settings
+    // Note: these settings may be loaded BEFORE tracks are created, so
+    // store them for later usage
+    auto trackSettings = element.firstChildElement("trackSettings");
+    if (!trackSettings.isNull())
+    {
+        // clear previous loaded settings
+        auto it = m_loadedTrackSettings.begin();
+        while (it != m_loadedTrackSettings.end())
+        {
+            if (*it) ::delete *it;
+            it = m_loadedTrackSettings.erase(it);
+        }
+
+        // store new loaded settings
+        auto tracks = trackSettings.childNodes();
+        for (int i = 0; i < tracks.size(); i++)
+        {
+            auto track = tracks.at(i).toElement();
+            auto ts = new TrackSettings(
+                track.attribute("loopLength", "4").toInt(),
+                track.attribute("enableQ", "1") != "0");
+            m_loadedTrackSettings.append(ts);
+        }
+
+        // if this is a preset loaded AFTER project, we need to
+        // update current track settings
+        auto saved = m_loadedTrackSettings.constBegin();
+        for (auto ts : m_trackSettings)
+        {
+            if (saved == m_loadedTrackSettings.constEnd()) { break; }
+            ts->m_loopLength.setValue((*saved)->m_loopLength.value());
+            ts->m_loopLength.setRange(
+                (*saved)->m_loopLength.minValue(),
+                (*saved)->m_loopLength.maxValue());
+            ts->m_enableQ.setValue((*saved)->m_enableQ.value());
+            saved++;
         }
     }
 
@@ -1271,13 +1332,17 @@ void LooperCtrl::loadSettings(const QDomElement &element)
             }
 
             // enable only those inputs that were defined in preset
+            bool changed = false;
             for (auto it = mports.constBegin(); it != mports.constEnd(); it++)
             {
                 // remove midi number from name
                 auto name = it.key();
                 name.remove(0, name.indexOf(" ") + 1);
-                m_midiPort->subscribeReadablePort(it.key(), enabled.contains(name));
+                auto isPresent = enabled.contains(name);
+                m_midiPort->subscribeReadablePort(it.key(), isPresent);
+                changed = changed || isPresent;
             }
+            if (changed) { emit m_midiPort->readablePortsChanged(); }
         }
     }
 }

@@ -47,17 +47,27 @@ class TrackSettings;
 using MidiPortPtr = QSharedPointer<MidiPort>;
 using KeyBind = QPair<int16_t, int16_t>;
 using TrackSettingsMap = QMap<Track*, TrackSettings*>;
+using LoadedTrackSettings = QList<TrackSettings*>;
 
 
 class TrackSettings
 {
 public:
-	TrackSettings(int loopLength) :
-		m_loopLength(loopLength, 1, 256)
+	TrackSettings(int loopLength, bool enableQ = true) :
+		m_loopLength(loopLength, 1, 256),
+		m_enableQ(enableQ)
+	{}
+
+	TrackSettings(TrackSettings *other) :
+		m_loopLength(
+			other->m_loopLength.value(),
+			other->m_loopLength.minValue(),
+			other->m_loopLength.maxValue()),
+		m_enableQ(other->m_enableQ.value())
 	{}
 
 	IntModel m_loopLength;
-	BoolModel m_enableQ = {true};
+	BoolModel m_enableQ;
 };
 
 
@@ -155,6 +165,7 @@ private:
 
 	int m_recordLoopCount = 0;
 	TrackSettingsMap m_trackSettings;
+	LoadedTrackSettings m_loadedTrackSettings;
 	PendingAction m_pendingAction = NoAction;
 };
 
@@ -179,8 +190,6 @@ private:
 	void loadSettings(const QDomElement &element);
 
 	QVBoxLayout *m_tracksLayout = nullptr;
-	MidiPortMenu *m_readablePorts = nullptr;
-
 	LooperCtrl *m_lcontrol = nullptr;
 };
 

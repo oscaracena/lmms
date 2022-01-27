@@ -34,17 +34,18 @@ Expected features/bugfix (v0.3):
   * [OK] set specific color for cloned clips
   * [OK] wait start recording until first note comes
   * [OK] add per track quantization toggle
-  * save current track settings inside preset
-  * if clip is updated, update cloned clips
-  * link MIDI knob to track volume
-  * ignore Q on mute/solo when not playing
-  * enable/disable global quantization
-  * display current track on Looper Tool (change border or background)
-  * update timeline loop size when changed on selected track
+  * [OK] save current track settings inside preset
+  * [OK] ignore Q on mute/solo when not playing
 
 Expected features/bugfix (v0.4):
+  * enable/disable global quantization
+  * if clip is updated, update cloned clips
+  * link MIDI knob to track volume
   * on change track, keep pending mute/solo toggle for that track
   * on change track, move pending record to new selected track
+  * on song editor move track position, update track settings accordingly
+  * display current track on Looper Tool (change border or background)
+  * update timeline loop size when changed on selected track
   * handle "Sample" tracks
   * support for multiple Clips per track (move Clip outside the loop, and create new)
   * use Qt Designer to build the tool interface
