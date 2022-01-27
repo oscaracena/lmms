@@ -86,8 +86,8 @@ private slots:
 	void onTrackChanged(int newTrackId);
 	void onLoopLengthChanged();
 	void onEnableChanged();
-	void onLoopRestart();
 	void onProjectLoad();
+	void onLoopRestart();
 
 private:
 	friend class LooperView;
@@ -115,12 +115,13 @@ private:
 		NumOfStatuses,
 	};
 
+	void setPendingAction(PendingAction action, bool preempt = false);
 	void togglePlay();
 	void toggleRecord();
 	void toggleMuteTrack();
+	void toggleSoloTrack();
 	void setupTrack(int trackId = -1);
 	void openTrackOnPianoRoll(int trackId = -1);
-	void setPendingAction(PendingAction action, bool preempt = false);
 	void setColor(QColor c);
 	int getInstrumentTrackAt(int position);
 	void enableLoop(int length = -1);
@@ -128,6 +129,7 @@ private:
 	void emitTrackStatus(Status status);
 	TrackSettings* createTrackSettings(Track* track);
 	void deleteTrackSettings(Track* track);
+	bool isTrackQEnabled(Track* track = nullptr);
 
 	void saveSettings(QDomDocument &doc, QDomElement &element);
 	void loadSettings(const QDomElement &element);

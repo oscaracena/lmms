@@ -102,7 +102,7 @@ MidiConnectionDialog::MidiConnectionDialog(
     auto grid = new QGridLayout(this);
     grid->setSpacing(10);
 
-    auto label = new QLabel(tr("Press the MIDI button you want to use"), this);
+    auto label = new QLabel(tr("Press the MIDI button you want to use:"), this);
     label->setWordWrap(true);
     label->setFont(pointSize<8>(label->font()));
     grid->addWidget(label, 0, 0, 1, 3);

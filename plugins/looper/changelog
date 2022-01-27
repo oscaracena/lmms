@@ -33,17 +33,21 @@ Expected features/bugfix (v0.3):
   * [OK] show current status next to track info
   * [OK] set specific color for cloned clips
   * [OK] wait start recording until first note comes
-  * add per track quantization toggle
+  * [OK] add per track quantization toggle
+  * save current track settings inside preset
   * if clip is updated, update cloned clips
   * link MIDI knob to track volume
   * ignore Q on mute/solo when not playing
   * enable/disable global quantization
   * display current track on Looper Tool (change border or background)
   * update timeline loop size when changed on selected track
-  * on change track, move pending actions to new selected track
 
 Expected features/bugfix (v0.4):
-  * add dynamic automations for tracks
+  * on change track, keep pending mute/solo toggle for that track
+  * on change track, move pending record to new selected track
   * handle "Sample" tracks
   * support for multiple Clips per track (move Clip outside the loop, and create new)
   * use Qt Designer to build the tool interface
+  * react to live plug of a new midi controller
+  * save settings inside the project file
+  * add dynamic automations for tracks

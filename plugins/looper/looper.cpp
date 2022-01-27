@@ -229,19 +229,19 @@ LooperView::LooperView(ToolPlugin *tool) :
     connect(muteBtn, SIGNAL(clicked()), this, SLOT(onMappingBtnClicked()));
     buttons->addWidget(muteBtn);
 
-    auto unmuteAllBtn = new QPushButton(PLUGIN_NAME::getIconPixmap("unmute_all"), "");
-    unmuteAllBtn->setProperty("action", "unmuteAll");;
-    unmuteAllBtn->setToolTip(tr("Unmute All Tracks button mapping"));
-    unmuteAllBtn->setStyleSheet("padding: 3px");
-    connect(unmuteAllBtn, SIGNAL(clicked()), this, SLOT(onMappingBtnClicked()));
-    buttons->addWidget(unmuteAllBtn);
-
     auto soloBtn = new QPushButton(PLUGIN_NAME::getIconPixmap("solo"), "");
     soloBtn->setProperty("action", "solo");;
     soloBtn->setToolTip(tr("Solo Track button mapping"));
     soloBtn->setStyleSheet("padding: 3px");
     connect(soloBtn, SIGNAL(clicked()), this, SLOT(onMappingBtnClicked()));
     buttons->addWidget(soloBtn);
+
+    auto unmuteAllBtn = new QPushButton(PLUGIN_NAME::getIconPixmap("unmute_all"), "");
+    unmuteAllBtn->setProperty("action", "unmuteAll");;
+    unmuteAllBtn->setToolTip(tr("Unmute All Tracks button mapping"));
+    unmuteAllBtn->setStyleSheet("padding: 3px");
+    connect(unmuteAllBtn, SIGNAL(clicked()), this, SLOT(onMappingBtnClicked()));
+    buttons->addWidget(unmuteAllBtn);
 
     auto clearBtn = new QPushButton(embed::getIconPixmap("edit_erase"), "");
     clearBtn->setProperty("action", "clearNotes");
@@ -612,7 +612,9 @@ void LooperCtrl::processInEvent(
         // mute current track action
         else if (ev.channel() == m_muteCurrent.first && ev.key() == m_muteCurrent.second)
         {
-            setPendingAction(ToggleMuteTrack);
+            // if quantization is not enabled, mute just now
+            if (!isTrackQEnabled()) { toggleMuteTrack(); }
+            else { setPendingAction(ToggleMuteTrack); }
         }
 
         // unmute all tracks
@@ -630,10 +632,9 @@ void LooperCtrl::processInEvent(
         // set solo on current track
         else if (ev.channel() == m_solo.first && ev.key() == m_solo.second)
         {
-            auto clip = pianoRoll->currentMidiClip();
-            if (!clip) { return; }
-            auto track = clip->getTrack();
-            track->setSolo(!track->isSolo());
+            // if quantization is not enabled, make solo just now
+            if (!isTrackQEnabled()) { toggleSoloTrack(); }
+            else { setPendingAction(ToggleSoloTrack); }
         }
 
         // clear all notes of current track
@@ -690,6 +691,17 @@ void LooperCtrl::onEnableChanged(){
 }
 
 
+void LooperCtrl::onProjectLoad()
+{
+    auto trackId = getInstrumentTrackAt(0);
+    if (trackId != -1)
+    {
+        openTrackOnPianoRoll(trackId);
+        setupTrack(trackId);
+    }
+}
+
+
 void LooperCtrl::onLoopRestart()
 {
     // qInfo("loop restart, action: %d", m_pendingAction);
@@ -736,30 +748,54 @@ void LooperCtrl::onLoopRestart()
         setPendingAction(NoAction);
         break;
 
+    case ToggleSoloTrack:
+        qInfo(" - action: toggle solo, set no action");
+        toggleSoloTrack();
+        setPendingAction(NoAction);
+        break;
+
     default:
         break;
     }
 }
 
 
-void LooperCtrl::onProjectLoad()
+void LooperCtrl::setPendingAction(PendingAction action, bool preempt)
 {
-    auto trackId = getInstrumentTrackAt(0);
-    if (trackId != -1)
-    {
-        openTrackOnPianoRoll(trackId);
-        setupTrack(trackId);
+    // qInfo("setPending: %d || %d < %d", preempt, m_pendingAction, ProtectedAction);
+    if (preempt || m_pendingAction < ProtectedAction) {
+        m_pendingAction = action;
+        switch (m_pendingAction)
+        {
+        case NoAction:
+            setColor(m_colNormal);
+            break;
+        case StopRecord:
+            setColor(m_colRecording);
+            break;
+        default:
+            setColor(m_colQueuedAction);
+            break;
+        }
     }
 }
 
 
 void LooperCtrl::toggleMuteTrack()
 {
-    auto pianoRoll = getGUI()->pianoRoll();
-    auto clip = pianoRoll->currentMidiClip();
+    auto clip = getGUI()->pianoRoll()->currentMidiClip();
     if (!clip) { return; }
     auto track = clip->getTrack();
     track->setMuted(!track->isMuted());
+}
+
+
+void LooperCtrl::toggleSoloTrack()
+{
+    auto clip = getGUI()->pianoRoll()->currentMidiClip();
+    if (!clip) { return; }
+    auto track = clip->getTrack();
+    track->setSolo(!track->isSolo());
 }
 
 
@@ -797,6 +833,10 @@ void LooperCtrl::togglePlay()
     }
 }
 
+// no cambia el color
+// no para de grabar
+// reinicia el bucle desde 0
+
 
 void LooperCtrl::toggleRecord()
 {
@@ -825,20 +865,21 @@ void LooperCtrl::toggleRecord()
             return;
         }
 
-        // get if track quantization is enabled
-        bool trackQ = true;
-        auto it = m_trackSettings.find(currentClip->getTrack());
-        if (it != m_trackSettings.end())
-        {
-            trackQ = it.value()->m_enableQ.value();
-        }
-
         // if quantization is not enabled, start just now
-        if (!trackQ)
+        if (!isTrackQEnabled(currentClip->getTrack()))
         {
             qInfo(" - is playing, Q not enabled, start recording");
             m_recordLoopCount = 1;
+
+            // recordAccompany will stop playing, and start again, so wee need to
+            // ensure that it does not go back to init position
+            auto timeline = song->getPlayPos(song->Mode_PlaySong).m_timeLine;
+            auto prevBehaviour = timeline->behaviourAtStop();
+            timeline->toggleBehaviourAtStop(TimeLineWidget::KeepStopPosition);
             pianoRoll->recordAccompany();
+            timeline->toggleBehaviourAtStop(prevBehaviour);
+
+            setPendingAction(StopRecord);
         }
         // otherwise, start recording on next loop reset
         else
@@ -1003,27 +1044,6 @@ void LooperCtrl::openTrackOnPianoRoll(int trackId)
 }
 
 
-void LooperCtrl::setPendingAction(PendingAction action, bool preempt)
-{
-    // qInfo("setPending: %d || %d < %d", preempt, m_pendingAction, ProtectedAction);
-    if (preempt || m_pendingAction < ProtectedAction) {
-        m_pendingAction = action;
-        switch (m_pendingAction)
-        {
-        case NoAction:
-            setColor(m_colNormal);
-            break;
-        case StopRecord:
-            setColor(m_colRecording);
-            break;
-        default:
-            setColor(m_colQueuedAction);
-            break;
-        }
-    }
-}
-
-
 void LooperCtrl::setColor(QColor c) {
     if (!m_useColors.value()) { return; }
 
@@ -1112,6 +1132,28 @@ void LooperCtrl::deleteTrackSettings(Track* track)
 {
     auto value = m_trackSettings.take(track);
     if (value) { ::delete value; }
+}
+
+
+bool LooperCtrl::isTrackQEnabled(Track* track)
+{
+    // enabled by default
+    bool retval = true;
+
+    if (track == nullptr)
+    {
+        auto currentClip = getGUI()->pianoRoll()->currentMidiClip();
+        if (currentClip == nullptr) { return retval; }
+        track = currentClip->getTrack();
+    }
+
+    auto it = m_trackSettings.find(track);
+    if (it != m_trackSettings.end())
+    {
+        retval = it.value()->m_enableQ.value();
+    }
+
+    return retval;
 }
 
 
